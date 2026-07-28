@@ -97,14 +97,38 @@ narrow extras the fast path needs: `cloudformation:DescribeStacks`, object acces
 bucket, and `cloudfront:CreateInvalidation`. Verified with `iam simulate-principal-policy`:
 `iam:CreateUser`, `dynamodb:DeleteTable` and `s3:DeleteBucket` are all implicitly denied.
 
-Recreating it (a new repo name, a second deployment):
+Create or update it with the script (idempotent - safe to re-run):
 
 ```bash
-aws iam create-role --role-name agency-github-deploy \
-  --assume-role-policy-document file://trust.json     # see the sub/aud conditions above
-aws iam put-role-policy --role-name agency-github-deploy \
-  --policy-name agency-deploy --policy-document file://perms.json
+bash .github/scripts/setup-oidc-role.sh <owner>/<repo>
 ```
+
+**The `sub` claim format is the one thing that will catch you out.** It's documented as
+`repo:<owner>/<name>:ref:refs/heads/main`, but some GitHub accounts emit **immutable numeric
+ids**:
+
+```
+repo:<owner>@<owner_id>/<name>@<repo_id>:ref:refs/heads/main
+```
+
+A trust policy written in the plain form then fails with `Not authorized to perform
+sts:AssumeRoleWithWebIdentity` - which reads like a permissions problem and is actually a
+string mismatch, so you can burn a while checking IAM. **CloudTrail is where the truth is:**
+look up the failed `AssumeRoleWithWebIdentity` event and read
+`userIdentity.userName` - that's the subject the token actually carried.
+
+```bash
+aws cloudtrail lookup-events \
+  --lookup-attributes AttributeKey=EventName,AttributeValue=AssumeRoleWithWebIdentity \
+  --max-results 5 --query 'Events[].CloudTrailEvent' --output text
+```
+
+The script sidesteps it by asking the GitHub API for the ids and building the subject from the
+answer - and refusing to write a policy if that lookup fails, rather than guessing and leaving
+a trust policy no token can ever match. The id-qualified form is the *stronger* one anyway: a
+renamed or recreated repo gets new ids and can't inherit the old trust.
+
+The policy uses `StringEquals` on the full subject, with **no wildcard operator anywhere**.
 
 The GitHub OIDC provider (`token.actions.githubusercontent.com`) is account-global and is
 **not** managed by this project - it's shared with anything else in the account. Create it once
