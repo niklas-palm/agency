@@ -13,6 +13,7 @@ import { buildBaseTools } from "./tools.js";
 import { buildTimeTool } from "./time-tool.js";
 import { buildFetchTool, buildWebSearchClient } from "./web-tools.js";
 import { buildIntegrationTools } from "./integration-tools.js";
+import { buildSlackTools, SLACK_PROMPT } from "./slack-tools.js";
 import { composeSystemPrompt } from "@agency/shared";
 import { InjectionPlugin } from "./mailbox.js";
 import { WEB_SEARCH_GATEWAY_URL } from "./config.js";
@@ -25,11 +26,13 @@ export interface BuildAgentArgs {
   skills?: ResolvedSkill[];
   /** The agent's attached integrations, resolved to a manifest (from the payload). */
   integrations?: ResolvedIntegration[];
+  /** True when a Slack mention started this run - wires the Slack tools + prompt block. */
+  fromSlack?: boolean;
   /** Called when a mailbox message is injected, so it can be recorded. */
   onInjected: (text: string) => void;
 }
 
-export function buildAgent({ config, agentId, sessionId, skills, integrations, onInjected }: BuildAgentArgs): Agent {
+export function buildAgent({ config, agentId, sessionId, skills, integrations, fromSlack, onInjected }: BuildAgentArgs): Agent {
   // Per-agent env vars: sanitize the user's config.env (drop keys reserved for
   // the runtime's own internals) and hand the result to run_bash as its ONLY
   // extra environment - we never spread process.env into bash, so platform
@@ -62,6 +65,11 @@ export function buildAgent({ config, agentId, sessionId, skills, integrations, o
   const resolvedIntegrations = integrations ?? [];
   tools.push(...buildIntegrationTools(resolvedIntegrations, { agentId, sessionId }));
 
+  // Slack tools - wired only when this run came from a Slack mention. Like the integration
+  // tools they go through the control-plane, which holds the bot token and derives the reply
+  // target from the session id, so the runtime never sees a Slack credential.
+  tools.push(...buildSlackTools(Boolean(fromSlack)));
+
   // Compose via the SHARED prompt module so the model gets exactly what the web
   // UI shows the creator (single source of truth). `hasSearch` tracks whether the
   // managed web-search tool was actually wired (prod-only), so the prompt never
@@ -78,6 +86,9 @@ export function buildAgent({ config, agentId, sessionId, skills, integrations, o
     },
     config.systemPrompt,
   );
+  // The Slack block goes AFTER the composed prompt (same position ISOLATED_PROMPT takes):
+  // it describes the reply channel for THIS run, not the agent's standing behaviour.
+  const finalPrompt = fromSlack ? `${systemPrompt}\n\n${SLACK_PROMPT}` : systemPrompt;
 
   // Attached skills via the Strands AgentSkills plugin: metadata is injected into
   // the system prompt and the full instructions are loaded on demand via a tool
@@ -94,7 +105,7 @@ export function buildAgent({ config, agentId, sessionId, skills, integrations, o
     name: config.name,
     model: buildModel(config.model),
     tools,
-    systemPrompt,
+    systemPrompt: finalPrompt,
     plugins,
     printer: false,
   });

@@ -30,6 +30,20 @@ export interface AgentRecord {
   createdAt: string;
   updatedAt: string;
   metrics: AgentMetrics;
+  /**
+   * The Slack app's secrets, when the agent has a Slack trigger. WRITE-ONLY: never
+   * returned by a read route (`toPublic` strips them), exactly like an integration's
+   * `secret`. Kept on the agent record rather than in a side table because their
+   * lifetime IS the trigger's - deleting the agent deletes them, with no orphan to reap.
+   *
+   * `signingSecret` verifies inbound webhooks; `botToken` authorizes our outbound calls to
+   * Slack. Neither ever reaches the runtime: replies go through the control-plane, so a
+   * compromised microVM has no Slack credential to steal.
+   */
+  slackSecrets?: {
+    signingSecret?: string;
+    botToken?: string;
+  };
 }
 
 const ZERO_METRICS: AgentMetrics = {
@@ -81,7 +95,10 @@ export function normalizeConfig(config: AgentConfig): AgentConfig {
  * credential - a table read (a PITR export, an over-broad grant) yields hashes only.
  */
 export function toPublic(r: AgentRecord): Agent {
-  const { apiKeyHash: _drop, ...pub } = r;
+  // Both stripped fields are credentials that must never reach a read response: the API key
+  // hash, and the Slack signing secret + bot token. Anything added to AgentRecord that is
+  // write-only belongs in this destructure.
+  const { apiKeyHash: _drop, slackSecrets: _slack, ...pub } = r;
   // Legacy records predate versioning; treat them as version 1.
   return { ...pub, version: pub.version ?? 1, config: normalizeConfig(pub.config) };
 }
@@ -141,6 +158,11 @@ export async function updateAgent(
     /** Array to set the manager list; `null` to clear it (remove the attribute). */
     managers?: string[] | null;
     /**
+     * The Slack app's credentials. An object SETs both; `null` REMOVEs the attribute (used
+     * when the Slack trigger is disconnected, so no orphaned credential is left behind).
+     */
+    slackSecrets?: { signingSecret: string; botToken: string } | null;
+    /**
      * Compare-and-swap guard: only apply if the stored `version` still equals this.
      * The version bump reads-then-writes, so without it two concurrent PATCHes both
      * advance to the same number and the last writer's config wins while the version
@@ -176,6 +198,14 @@ export async function updateAgent(
     values[":mg"] = patch.managers;
   } else if (patch.managers === null) {
     removes.push("managers");
+  }
+  // slackSecrets: an object SETs it; null REMOVEs it, so disconnecting Slack doesn't leave a
+  // usable bot token on the record.
+  if (patch.slackSecrets === null) {
+    removes.push("slackSecrets");
+  } else if (patch.slackSecrets !== undefined) {
+    sets.push("slackSecrets = :ss");
+    values[":ss"] = patch.slackSecrets;
   }
   if (patch.version !== undefined) {
     sets.push("version = :v");

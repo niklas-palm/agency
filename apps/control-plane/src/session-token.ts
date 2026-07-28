@@ -44,6 +44,13 @@ export interface SessionClaims {
   sessionId: string;
   /** Integration ids this session is authorized to call via the proxy. */
   integrationIds: string[];
+  /**
+   * For a Slack run: the ts of the message that invoked the agent, i.e. the correct reaction
+   * target. Distinct from the session's thread key - for a mention INSIDE a thread the thread key
+   * is the PARENT, so reacting to it decorates someone else's older message. Carried in the token
+   * rather than as a tool argument so the agent still cannot choose its own target.
+   */
+  replyToTs?: string;
 }
 
 function b64url(s: string): string {
@@ -66,10 +73,14 @@ export function mintSessionToken(
   sessionId: string,
   integrationIds: string[] = [],
   nowMs: number = Date.now(),
+  // Last, and optional: every existing positional caller keeps working unchanged.
+  replyToTs = "",
 ): string {
   if (!RUNTIME_INGEST_KEY) return "";
   const exp = Math.floor(nowMs / 1000) + TTL_SECONDS;
-  const claims = `${b64url(orgId)}.${b64url(agentCreatedBy)}.${b64url(agentId)}.${b64url(sessionId)}.${b64url(integrationIds.join(","))}.${exp}`;
+  const base = `${b64url(orgId)}.${b64url(agentCreatedBy)}.${b64url(agentId)}.${b64url(sessionId)}.${b64url(integrationIds.join(","))}`;
+  // The Slack claim is APPENDED, so a non-Slack token stays byte-identical to before.
+  const claims = replyToTs ? `${base}.${exp}.${b64url(replyToTs)}` : `${base}.${exp}`;
   return `${claims}.${sign(claims)}`;
 }
 

@@ -29,6 +29,9 @@ narrowed by its own scopes. Per-resource visibility/writability then applies via
 | `GET /agents/:id/metrics?hours=&version=`       | JWT or PAT      | `read`  | Aggregated operational metrics        |
 | `GET /agents/:id/runs?limit=`                   | JWT or PAT      | `read`  | Past runs, newest first (durable)     |
 | `GET /agents/:id/runs/:runId`                   | JWT or PAT      | `read`  | One past run's trajectory (table, else the S3 archive) |
+| `GET /agents/:id/slack`                         | JWT or PAT      | `read`  | Slack setup state + the app manifest to paste |
+| `PUT /agents/:id/slack/credentials`             | JWT or PAT      | `write` | Store + verify the bot token & signing secret (write-only) |
+| `PUT /agents/:id/slack/channels`                | JWT or PAT      | `write` | Set the channel allowlist (each id validated vs the workspace) |
 | `POST /tokens`                                  | JWT only        | -              | Create a Personal Access Token (once, bound to the active org) |
 | `GET /tokens`                                   | JWT only        | -              | List your tokens (metadata only)     |
 | `DELETE /tokens/:id`                            | JWT only        | -              | Revoke a token                       |
@@ -170,7 +173,11 @@ scope-gated - the token is the credential.
 
 - **`POST /internal/trajectory`** + **`POST /internal/session-summary`** - trajectory events +
   session summaries (see docs/metrics.md).
-- **`POST /internal/integrations/call`** - the integrations proxy (the *only* proxy endpoint).
+- **`POST /internal/integrations/call`** - the integrations proxy.
+- **`POST /internal/slack/call`** - the Slack proxy: the agent's only route to Slack, so the bot
+  token never enters the runtime. The target channel + thread are derived from the token's
+  `sessionId` (a Slack session id *is* `slack-<channel>-<threadTs>`), not from the body - so
+  there is no channel parameter for a prompt-injected agent to aim elsewhere.
   Verifies the token, checks the requested `integrationId` is in its granted set (else 403),
   loads the integration record scoped to the token's `orgId` and re-checks it's still visible
   to the agent's creator (`agentCreatedBy` - graceful if un-shared since attach; 404 if

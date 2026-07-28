@@ -107,6 +107,7 @@ export function parseTriggers(value: unknown): Trigger[] | null {
   if (!Array.isArray(value)) return null;
   const out: Trigger[] = [{ type: "api" }];
   let scheduleSeen = false;
+  let slackSeen = false;
   for (const raw of value) {
     if (typeof raw !== "object" || raw === null) return null;
     const t = raw as Record<string, unknown>;
@@ -126,9 +127,72 @@ export function parseTriggers(value: unknown): Trigger[] | null {
       out.push(schedule);
       continue;
     }
+    if (t.type === "slack") {
+      if (slackSeen) return null; // at most one Slack app per agent
+      slackSeen = true;
+      const channels = parseSlackChannels(t.channels);
+      if (!channels) return null;
+      const slack: Trigger = {
+        type: "slack",
+        channels,
+        ...(isSlackId(t.appId, "A") ? { appId: t.appId as string } : {}),
+        ...(isSlackId(t.teamId, "T") ? { teamId: t.teamId as string } : {}),
+        ...(typeof t.teamName === "string" && t.teamName.trim()
+          ? { teamName: t.teamName.trim().slice(0, MAX_SLACK_NAME) }
+          : {}),
+        ...(isSlackId(t.botUserId, "U", "B") ? { botUserId: t.botUserId as string } : {}),
+        ...(Array.isArray(t.grantedScopes)
+          ? {
+              grantedScopes: t.grantedScopes
+                .filter((x): x is string => typeof x === "string")
+                .slice(0, MAX_SLACK_SCOPES),
+            }
+          : {}),
+        ...(t.urlVerified === true ? { urlVerified: true } : {}),
+      };
+      out.push(slack);
+      continue;
+    }
     return null; // unknown trigger type
   }
   return out;
+}
+
+/** Caps on Slack trigger fields. A channel list is an allowlist, not a bulk import. */
+const MAX_SLACK_CHANNELS = 25;
+const MAX_SLACK_NAME = 80;
+const MAX_SLACK_SCOPES = 50;
+
+/**
+ * Slack ids are an uppercase letter prefix + base32-ish body, e.g. `A0123ABCD`, `T0…`, `C0…`.
+ * We validate the SHAPE only - the real check is that Slack accepts it - but a shape check
+ * keeps junk out of the config and, for channels, out of the routing decision.
+ */
+function isSlackId(value: unknown, ...prefixes: string[]): boolean {
+  return (
+    typeof value === "string" &&
+    value.length >= 2 &&
+    value.length <= 32 &&
+    prefixes.some((p) => value.startsWith(p)) &&
+    /^[A-Z][A-Z0-9]+$/.test(value)
+  );
+}
+
+/**
+ * Channels the agent may answer in. An EMPTY list is valid and means "answer nowhere" - the
+ * fail-closed default for a freshly created trigger, before the user has picked a channel.
+ * `C` = public channel, `G` = private channel/group, `D` = DM (accepted so a future DM mode
+ * needs no wire change, though v1 subscribes only to app_mention).
+ */
+function parseSlackChannels(value: unknown): string[] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > MAX_SLACK_CHANNELS) return null;
+  const seen = new Set<string>();
+  for (const c of value) {
+    if (!isSlackId(c, "C", "G", "D")) return null;
+    seen.add(c as string);
+  }
+  return [...seen];
 }
 
 /** Caps on skills/integrations attached + env vars per agent (payload-size + abuse guards). */

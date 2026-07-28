@@ -23,6 +23,8 @@ export interface InvokeArgs {
   integrations?: ResolvedIntegration[];
   sessionId: string;
   prompt: string;
+  /** True when a Slack mention started this run - the runtime wires its Slack tools from it. */
+  fromSlack?: boolean;
   /** Per-session telemetry + integrations-proxy capability token, minted by the control-plane. */
   ingestToken: string;
 }

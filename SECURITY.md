@@ -96,14 +96,28 @@ two as prerequisites, not footnotes.
   validated. A compromised agent can therefore muddy **its own** tenant's telemetry. The claim
   lock means no cross-tenant reach; the read side coerces so one bad row can't break a
   dashboard.
-- **Secrets are plaintext at rest in DynamoDB.** Per-agent `config.env` values and integration
-  secrets are stored unencrypted beyond DynamoDB's own at-rest encryption, and `config.env` is
+- **Secrets are plaintext at rest in DynamoDB.** Per-agent `config.env` values, integration
+  secrets and a Slack trigger's `slackSecrets` (signing secret + bot token) are stored
+  unencrypted beyond DynamoDB's own at-rest encryption, and `config.env` is
   duplicated into every config version snapshot. Values are redacted from API reads for
   non-writers. Encrypting them at rest (KMS, or secret references) is planned, not done.
 - **Run traces are readable by anyone who can see the agent.** A trajectory contains prompts,
   tool inputs and outputs. This is a deliberate product decision (a team debugging an agent
   needs its trace) and it means `config.env` redaction covers the *config surface*, not agent
   *output*. Reasoning in [docs/metrics.md](docs/metrics.md).
+- **A Slack-triggered agent can be directed by anyone who can invite its bot.** The channel
+  allowlist is the control: the agent answers only in channels its owner listed, and an empty
+  list means nowhere. But *within* an allowed channel, any member can @-mention the agent and
+  have it run with the agent's full toolset - including `run_bash` and its integrations. That is
+  the feature, and it is why the setup UI states it plainly rather than burying it: treat an
+  allowed channel as equivalent to handing its members the agent's API key. A Slack agent that
+  holds powerful integrations belongs in a channel with a membership you control.
+- **The Slack webhook is public, and its only boundary is the HMAC.** Verified over the raw body
+  with a 5-minute replay window and a constant-time compare. `url_verification` is necessarily
+  exempt (Slack fires it before the app's signing secret exists on our side); the exemption is
+  narrowed to bodies carrying no `event`, and pinned by regression tests, because a wider
+  version would let an unsigned request start a run. Note there is no per-agent rate limit here
+  either, so the first bullet applies to inbound mentions too.
 - **The ingest/proxy HMAC signing key is plaintext in three Lambdas' environment.** It's
   generated into Secrets Manager, but CloudFormation resolves it into
   `Environment.Variables` at deploy - so anyone with `lambda:GetFunctionConfiguration` on

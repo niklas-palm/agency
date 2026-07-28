@@ -139,6 +139,9 @@ When creating or updating an agent, the config fields are:
 - \`triggers\` (array) - how the agent is invoked. Always includes \`{ "type": "api" }\`.
   Add \`{ "type": "schedule", "expression": "rate(1 hour)", "prompt": "…", "timezone": "UTC" }\`
   to run it unattended on a cron/interval (EventBridge Scheduler expression).
+  Add \`{ "type": "slack", "channels": [] }\` to make the agent answer Slack @-mentions;
+  finish the connection with the \`/agents/{id}/slack*\` endpoints (see below). An EMPTY
+  \`channels\` list means the agent answers NOWHERE - that's the fail-closed default.
 - \`skillIds\` (string[]) - ids of reusable skills to attach (manage via \`/skills\`).
   The agent loads a skill's instructions on demand; editing a skill updates every
   agent using it on the next run.
@@ -248,6 +251,30 @@ or \`rejected\` (busy - back off and retry).
 curl -sX DELETE "$BASE/agents/<AGENT_ID>" -H "Authorization: Bearer $PAT"
 # → 204 No Content
 \`\`\`
+
+### Connecting an agent to Slack
+
+One Slack app per agent - the app IS the agent's identity, since people @-mention it by name.
+Three calls, and the user does three things in Slack that no API can do for them:
+
+1. \`GET /agents/{id}/slack\` → returns \`state\` plus a COMPLETE app \`manifest\` (scopes,
+   event subscription, and the agent's webhook URL already baked in). Hand the manifest to the
+   user to paste into Slack's *Create New App → From a manifest* flow.
+2. Slack POSTs a \`url_verification\` challenge to the webhook as soon as the app is created;
+   we answer it automatically, and \`state\` becomes \`url_verified\` on its own. Poll the GET
+   to show progress - if it never flips, the manifest went somewhere else.
+3. The user installs the app (workspace consent - no API for it) and copies two values:
+   \`PUT /agents/{id}/slack/credentials\` with \`{ botToken, signingSecret }\`. Both are
+   write-only. We verify with Slack's \`auth.test\` BEFORE storing, and the response tells you
+   which workspace was connected and which scopes Slack actually granted.
+4. \`PUT /agents/{id}/slack/channels\` with \`{ channels: ["C…"] }\`. Every id is validated
+   against the connected workspace, because channel ids are workspace-scoped and a foreign id
+   produces an agent that looks configured and silently ignores every mention.
+
+Once live, mentioning the bot starts a run; **replying in the same thread injects into the run
+already in progress** rather than starting a second one. The agent gets \`slack_reply\` and
+\`slack_set_status\` tools automatically - it never holds the bot token, and it can only post
+to the thread it was invoked from.
 
 Requires the \`delete\` scope (destructive; removes the agent's schedule + record. Its
 config version history is orphaned, not deleted, but nothing can read it back).

@@ -77,7 +77,7 @@ page they belong to.
   key is what it is, retention + what survives a delete, and the local⇄prod parity gaps.
 - `docs/metrics.md` - agent config versioning + the operational-metrics engine (the
   agent-versions + agent-sessions tables, the session-summary write path, dashboards).
-- `docs/triggers.md` - how agents get invoked (api + schedule; the managed-trigger seam).
+- `docs/triggers.md` - how agents get invoked (api + schedule + slack; the managed-trigger seam).
 - `docs/integrations.md` - downstream-API integrations: the proxy that holds the credential,
   the manifest-based discovery, the SSRF anchor, and the sample API.
 - `docs/local-dev.md` - running the full replica locally.
@@ -292,6 +292,38 @@ retention of prompt + tool-IO content (see SECURITY.md). The Monitor tab renders
 same trajectory viewer the live Run tab uses (one line per step, expandable, a tool result folded
 into the call it answers by `toolUseId`).
 
+## The Slack trigger
+
+An agent with a `slack` trigger runs when its bot is **@-mentioned** in an allowed channel and
+answers in that thread. **One Slack app per agent** - the app IS the agent's identity (its name
+and bot user are what people @-mention), which also gives per-agent scopes, revocation, and
+several agents co-existing in one channel. The user creates the app by pasting a **complete
+manifest we generate** (`packages/shared/src/slack-manifest.ts`: one scope per API method we
+actually call - incl. `channels:read`/`groups:read`, which `conversations.info` needs and the
+`*:history` scopes do NOT imply, the `app_mention` subscription, and the agent's own webhook URL all baked
+in) - so we hold **no Slack app-configuration token**, a credential that could reshape any app
+in their workspace and whose single-use/12h rotation needs a retrying agent to survive, not a
+self-service form. Setup is a resumable state machine derived from the record, never stored:
+`manifest_ready` → `url_verified` → `needs_bot_token` → `verified` → `live` (three
+`/agents/:id/slack*` endpoints drive it). `url_verified` arrives unprompted, which is the
+moment it feels managed; `verified` shows what Slack ACTUALLY granted (`auth.test`'s
+`x-oauth-scopes`); channels are validated against the connected workspace
+(`conversations.info`) because a foreign channel id yields an agent that looks configured and
+silently ignores every mention.
+
+The webhook (`POST /webhooks/slack/:agentId`) is public - Slack can hold no credential of ours -
+so **the HMAC is the whole boundary** (raw body, replay window, constant-time compare).
+`url_verification` is the one request that can't be verified (Slack fires it at app-creation,
+before we know the signing secret), so `isUrlVerification` refuses any body that also carries an
+`event` - without that clause an unsigned request could reach the invoke path. The agentId
+therefore rides the URL **path**, which is also why a forged path can't pick another agent's
+secret. **One thread = one session** (`slack-<channel>-<threadTs>`), so a follow-up mention is
+**injected into the running turn** - the load-bearing feature made visible. The agent never
+holds the bot token: `slack_reply`/`slack_set_status` are wired only when the payload carries
+`fromSlack`, and the control-plane derives the reply target from the session token, so there's
+no channel argument to poison. The channel allowlist is a security control (anyone who can
+`/invite` the bot can direct the agent); empty means answer nowhere. See docs/triggers.md.
+
 ## Skills + integrations + env vars
 
 **Skills** are reusable Markdown docs (org-scoped `skills` table, pk=orgId/sk=id, with
@@ -328,8 +360,9 @@ out silently (graceful degradation), but a **read failure fails the invoke** (50
 schedule tick) rather than starting an agent that has no way to call the API it exists to
 call. The runtime surfaces the manifest via the system prompt +
 `list_integration_operations` (discovery: "what CAN I call?") and calls an operation with
-`call_integration`, which POSTs to the control-plane proxy (`POST /internal/integrations/call`,
-the only proxy endpoint). Call args are open per-call (`pathParams`/`query`/`body` - so an agent
+`call_integration`, which POSTs to the control-plane proxy (`POST /internal/integrations/call` -
+the only *integrations* proxy endpoint; the Slack trigger adds `POST /internal/slack/call` on the
+same per-session-token pattern). Call args are open per-call (`pathParams`/`query`/`body` - so an agent
 pages a listing by varying `query`); an optional `outputPath` writes the response to a
 workspace file (confined by the shared `sandboxed()`) instead of into context, so a code agent
 fetches data and computes over it with `run_bash` - the runtime sends `largeResponse` and the
@@ -388,10 +421,9 @@ cross-org shared registry is added), user-defined MCP servers, richer integratio
 (downstream-API **integrations** are shipped - incl. OpenAPI auto-discovery of the operation
 manifest + OAuth2 client-credentials auth, see docs/integrations.md; still deferred: OAuth
 refresh-token/3-legged + token-exchange auth kinds - the `IntegrationAuth` union is built to
-extend - and more discovery providers (GraphQL/MCP/YAML)), and more managed triggers (Slack,
-GitHub - stubbed as "Soon" in the triggers UI; the `api` + `schedule` triggers are wired, see
-docs/triggers.md; a design doc for Slack/GitHub lives in
-a local design doc).
+extend - and more discovery providers (GraphQL/MCP/YAML)), and the GitHub managed trigger
+(stubbed as "Soon" in the triggers UI; `api` + `schedule` + `slack` are wired - see
+docs/triggers.md, and a local design doc for GitHub).
 
 **The organization model is shipped** (was deferred as org-scoped resources + who-can-use
 governance): resources are org-scoped with `createdBy` + `shared`, memberships carry

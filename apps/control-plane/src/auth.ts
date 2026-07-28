@@ -239,6 +239,12 @@ export function hasScope(principal: Principal, scope: Scope): boolean {
  */
 export function requireScope(scope: Scope): MiddlewareHandler<Env> {
   return async (c, next) => {
+    // Fail CLOSED when there is no principal. `requireAuth` is attached per-path, so a route
+    // added without its own `app.use` line reaches here with `principal` undefined - which used
+    // to throw a TypeError and surface as a 500. A 500 is accidental safety: it depends on the
+    // dereference, so any refactor of hasScope could silently turn it into an open route. This
+    // makes the guard itself the boundary, and returns the answer that is actually true (401).
+    if (!c.var.principal) return c.json({ error: "missing bearer token" }, 401);
     if (!hasScope(c.var.principal, scope)) {
       return c.json({ error: `your role lacks the required capability: ${scope}` }, 403);
     }

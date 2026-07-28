@@ -148,6 +148,54 @@ export async function updateAgent(
   return agent;
 }
 
+/** Everything the Slack setup panel needs: the derived state + the manifest to paste. */
+export interface SlackSetup {
+  state: "manifest_ready" | "url_verified" | "needs_bot_token" | "verified" | "live";
+  manifest: Record<string, unknown>;
+  requestUrl: string;
+  requestedScopes: string[];
+  hasBotToken: boolean;
+  appId?: string;
+  teamId?: string;
+  teamName?: string;
+  botUserId?: string;
+  grantedScopes?: string[];
+  urlVerified: boolean;
+  channels: string[];
+}
+
+export async function getSlackSetup(id: string): Promise<SlackSetup> {
+  return managed<SlackSetup>(() => fetch(`${BASE}/agents/${id}/slack`, { headers: authHeaders() }));
+}
+
+/** Store + verify the two Slack credentials. Returns the workspace we actually connected to. */
+export async function putSlackCredentials(
+  id: string,
+  body: { botToken: string; signingSecret: string },
+): Promise<{ teamId: string; teamName: string; botUserId: string; grantedScopes: string[] }> {
+  return managed(() =>
+    fetch(`${BASE}/agents/${id}/slack/credentials`, {
+      method: "PUT",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+/** Set the channel allowlist. Each id is validated against the connected workspace. */
+export async function putSlackChannels(
+  id: string,
+  channels: string[],
+): Promise<{ channels: { id: string; name: string; isPrivate: boolean }[] }> {
+  return managed(() =>
+    fetch(`${BASE}/agents/${id}/slack/channels`, {
+      method: "PUT",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({ channels }),
+    }),
+  );
+}
+
 export async function listVersions(id: string): Promise<AgentVersion[]> {
   const { versions } = await managed<{ versions: AgentVersion[] }>(() =>
     fetch(`${BASE}/agents/${id}/versions`, { headers: authHeaders() }),

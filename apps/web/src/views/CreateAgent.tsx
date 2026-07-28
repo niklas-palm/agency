@@ -27,6 +27,7 @@ export function CreateAgent() {
   const integrationNames = allIntegrations.filter((i) => integrationIds.includes(i.id)).map((i) => i.name);
   const [env, setEnv] = useState<Record<string, string>>({});
   const [schedule, setSchedule] = useState<ScheduleTrigger | null>(null);
+  const [slackEnabled, setSlackEnabled] = useState(false);
   // Discoverability: default shared with the org (toggleable). Agents default on.
   const [shared, setShared] = useState(true);
   // Extra org members who may manage this agent (beyond creator + admins).
@@ -49,7 +50,11 @@ export function CreateAgent() {
         webSearch: isolated ? false : webSearch,
         networkAccess: !isolated,
         networkMode,
-        triggers: [{ type: "api" }, ...(schedule ? [schedule] : [])],
+        triggers: [
+          { type: "api" },
+          ...(schedule ? [schedule] : []),
+          ...(slackEnabled ? [{ type: "slack" as const, channels: [] }] : []),
+        ],
         ...(skillIds.length ? { skillIds } : {}),
         ...(integrationIds.length ? { integrationIds } : {}),
         ...(Object.keys(env).length ? { env } : {}),
@@ -157,7 +162,12 @@ export function CreateAgent() {
         <EnvEditor value={env} onChange={setEnv} />
 
         <Divider label="Triggers" />
-        <TriggersEditor schedule={schedule} onScheduleChange={setSchedule} />
+        <TriggersEditor
+          schedule={schedule}
+          onScheduleChange={setSchedule}
+          slackEnabled={slackEnabled}
+          onSlackToggle={setSlackEnabled}
+        />
 
         <Divider label="Visibility" />
         <ToggleRow

@@ -8,6 +8,7 @@
 import type { ScheduleTrigger } from "@agency/shared";
 import { Clock, Webhook, Slack, Github } from "lucide-react";
 import { Toggle } from "./components.js";
+import { SlackSetup } from "./SlackSetup.js";
 
 /** Preset recurrences, plus a custom-cron escape hatch. */
 const PRESETS: { label: string; expression: string }[] = [
@@ -22,18 +23,77 @@ export function TriggersEditor({
   invokeUrl,
   schedule,
   onScheduleChange,
+  slackEnabled = false,
+  onSlackToggle,
+  agentId,
+  canWrite = true,
 }: {
   invokeUrl?: string;
   schedule: ScheduleTrigger | null;
   onScheduleChange: (s: ScheduleTrigger | null) => void;
+  /** Whether the agent has a Slack trigger. */
+  slackEnabled?: boolean;
+  onSlackToggle?: (on: boolean) => void;
+  /**
+   * The agent's id. Absent while CREATING - Slack setup needs a saved agent, because the
+   * manifest embeds the agent's own webhook URL.
+   */
+  agentId?: string;
+  canWrite?: boolean;
 }) {
   return (
     <div className="space-y-2.5">
       <ApiCard invokeUrl={invokeUrl} />
       <ScheduleCard schedule={schedule} onChange={onScheduleChange} />
-      <ComingSoonCard icon={<Slack className="h-4 w-4" />} name="Slack" desc="Trigger on a slash command or mention." />
+      <SlackCard
+        enabled={slackEnabled}
+        onToggle={onSlackToggle}
+        agentId={agentId}
+        canWrite={canWrite}
+      />
       <ComingSoonCard icon={<Github className="h-4 w-4" />} name="GitHub" desc="Trigger on issues, PRs, or pushes." />
     </div>
+  );
+}
+
+/**
+ * Slack. Enabling it doesn't finish anything - it creates the trigger so we can generate a
+ * manifest that names this agent's webhook. The setup panel then walks the rest.
+ */
+function SlackCard({
+  enabled,
+  onToggle,
+  agentId,
+  canWrite,
+}: {
+  enabled: boolean;
+  onToggle?: (on: boolean) => void;
+  agentId?: string;
+  canWrite: boolean;
+}) {
+  return (
+    <TriggerCard
+      icon={<Slack className="h-4 w-4" />}
+      name="Slack"
+      desc="Answer when someone @-mentions the agent in a channel."
+      control={
+        onToggle ? (
+          <Toggle checked={enabled} onChange={onToggle} disabled={!canWrite} label="Slack trigger" />
+        ) : (
+          <span className="chip text-muted">Save first</span>
+        )
+      }
+    >
+      {enabled &&
+        (agentId ? (
+          <SlackSetup agentId={agentId} canWrite={canWrite} />
+        ) : (
+          <p className="text-xs text-muted">
+            Save the agent to get its setup steps - the Slack app manifest has to name this
+            agent's own webhook URL.
+          </p>
+        ))}
+    </TriggerCard>
   );
 }
 

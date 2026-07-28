@@ -28,10 +28,10 @@ export class AgentCoreInvoker implements AgentInvoker {
     requestHandler: { requestTimeout: 5_000, connectionTimeout: 3_000 },
   });
 
-  async invoke({ agentId, config, version, skills, integrations, sessionId, prompt, ingestToken }: InvokeArgs): Promise<RuntimeAck> {
+  async invoke({ agentId, config, version, skills, integrations, sessionId, prompt, fromSlack, ingestToken }: InvokeArgs): Promise<RuntimeAck> {
     // sessionId in the payload is the CLIENT's - what telemetry is keyed by. The
     // runtimeSessionId below is the derived, agent-bound one used only for routing.
-    const payload: RuntimePayload = { agentId, config, version, skills, integrations, sessionId, prompt, ingestToken };
+    const payload: RuntimePayload = { agentId, config, version, skills, integrations, sessionId, prompt, fromSlack, ingestToken };
     const command = new InvokeAgentRuntimeCommand({
       agentRuntimeArn: runtimeArnFor(config.networkMode),
       // Bound to the agent, NOT the client's id verbatim - see runtimeSessionIdFor:

@@ -34,7 +34,7 @@ Three ideas explain nearly every key choice:
 
 | Table | pk / sk | GSI | Retention | Holds |
 |---|---|---|---|---|
-| **agents** | `id` | `byOrg` (`orgId`) | RETAIN + PITR | One agent = pure config. The whole "creating an agent" operation is this single write. |
+| **agents** | `id` | `byOrg` (`orgId`) | RETAIN + PITR | One agent = pure config. The whole "creating an agent" operation is this single write. Also holds the two write-only credentials: `apiKeyHash` and, for a Slack trigger, `slackSecrets` (signing secret + bot token). `toPublic` strips both. |
 | **agent-versions** | `agentId` / `version` (N) | - | RETAIN + PITR | One immutable config snapshot per change. Append-only. |
 | **agent-sessions** | `agentId` / `runId` | - | RETAIN + PITR | One summary row per *runtime lifetime*: counts, duration, tokens, outcome. The source of every metric AND the durable run index. |
 | **trajectory** | `sessionId` / `cursor` | - | **DESTROY**, 30-day TTL | One item per agent action (text, tool call, tool result, lifecycle). The only expiring store. |

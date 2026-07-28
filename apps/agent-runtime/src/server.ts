@@ -50,6 +50,7 @@ interface Payload {
   version?: number;
   skills?: ResolvedSkill[];
   integrations?: ResolvedIntegration[];
+  fromSlack?: boolean;
   sessionId?: string;
   prompt?: string;
   ingestToken?: string;
@@ -86,6 +87,7 @@ const app = new BedrockAgentCoreApp({
       const version = typeof body.version === "number" ? body.version : 1;
       const skills = Array.isArray(body.skills) ? body.skills : [];
       const integrations = Array.isArray(body.integrations) ? body.integrations : [];
+      const fromSlack = body.fromSlack === true;
       const prompt = typeof body.prompt === "string" ? body.prompt : "";
 
       if (!agentId) throw new Error("missing 'agentId' in payload");
@@ -141,7 +143,7 @@ const app = new BedrockAgentCoreApp({
       // startTurn handles its own errors, but a rejection must never leave `working`
       // stuck true (which would wedge the session into "inject-only").
       working = true;
-      void runTurnTracked(sessionId, agentId, config, skills, integrations, prompt).catch((e) => {
+      void runTurnTracked(sessionId, agentId, config, skills, integrations, fromSlack, prompt).catch((e) => {
         console.error("turn task failed", e);
         working = false;
       });
@@ -156,6 +158,7 @@ async function startTurn(
   config: AgentConfig,
   skills: ResolvedSkill[],
   integrations: ResolvedIntegration[],
+  fromSlack: boolean,
   prompt: string,
 ): Promise<void> {
   // One call to startTurn = one invocation's working span. It runs the prompt and
@@ -173,6 +176,7 @@ async function startTurn(
         sessionId,
         skills,
         integrations,
+        fromSlack,
         onInjected: (text) => record(sessionId, agentId, "injected", { runId: metrics?.runId, content: text }),
       });
     }

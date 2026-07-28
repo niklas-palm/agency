@@ -12,8 +12,8 @@ import { runtimeSessionIdFor } from "../session-id.js";
 const SESSION_HEADER = "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id";
 
 export class HttpAgentInvoker implements AgentInvoker {
-  async invoke({ agentId, config, version, skills, integrations, sessionId, prompt, ingestToken }: InvokeArgs): Promise<RuntimeAck> {
-    const payload: RuntimePayload = { agentId, config, version, skills, integrations, sessionId, prompt, ingestToken };
+  async invoke({ agentId, config, version, skills, integrations, sessionId, prompt, fromSlack, ingestToken }: InvokeArgs): Promise<RuntimeAck> {
+    const payload: RuntimePayload = { agentId, config, version, skills, integrations, sessionId, prompt, fromSlack, ingestToken };
     const res = await fetch(`${LOCAL_RUNTIME_URL}/invocations`, {
       method: "POST",
       headers: {

@@ -64,18 +64,151 @@ EventBridge never runs a schedule the stored config doesn't contain (see docs/me
   scheduled agent's recurrence isn't fired automatically. Exercise it by invoking the agent
   directly (the schedule's stored prompt is what the prod trigger Lambda would send).
 
-## Adding a managed trigger later (Slack, GitHub, …)
+## slack
+
+The agent runs when its bot is **@-mentioned** in an allowed channel, and answers in that
+thread. `apps/control-plane/src/slack-*.ts` holds the whole feature.
+
+### One app per agent
+
+The Slack app **is** the agent's identity: it has one name, one avatar, one bot user, and
+people address the agent by @-mentioning it. A shared per-org app would need a sub-addressing
+convention (`@agency deploy-bot: …`), which is strictly worse than what Slack gives free. One
+app per agent also means several agents can sit in one channel, each answering only to its own
+name, plus per-agent scopes, per-agent revocation and a per-agent blast radius.
+
+### The user creates the app; we hold no config token
+
+Slack has an `apps.manifest.create` API, but it needs an app-configuration token that can
+create or modify **any** app in the workspace, is single-use with a ~12h rotation, and dies
+silently if a rotation isn't persisted. That's survivable for a script a human is watching and
+a support ticket in a self-service UI - so instead we generate a **complete manifest**
+(`packages/shared/src/slack-manifest.ts`) and the user pastes it into Slack's *From a manifest*
+flow. It costs them one paste and costs us no high-value credential.
+
+The manifest is complete on purpose - scopes, the `app_mention` subscription, and the agent's
+own webhook URL are all baked in. A "manifest minus events" approach leaves the user to enable
+things by hand, and when they forget, the app looks installed but never delivers.
+
+### Setup states
+
+Derived from the trigger + whether the secrets exist, never stored - so it can't go stale, and
+an abandoned setup resumes where it left off:
+
+`manifest_ready` → `url_verified` → `needs_bot_token` → `verified` → `live`
+
+Two of those transitions are the ones that make the setup feel managed:
+
+- **`url_verified` arrives on its own.** Slack POSTs its `url_verification` challenge the
+  moment the app is created, we answer it, and the UI ticks without the user doing anything.
+  If it never arrives, the manifest was pasted somewhere else - which is exactly the
+  diagnostic we can then give.
+- **`verified` reports what Slack actually granted.** `auth.test` returns an `x-oauth-scopes`
+  header and the workspace name, so the user sees the real grant, not our request.
+
+`live` additionally requires a channel: a connected agent with an empty allowlist answers
+nowhere, and that must not read as "done".
+
+### The security boundary is the HMAC
+
+The webhook (`POST /webhooks/slack/:agentId`) is public and unauthenticated - Slack can hold no
+credential of ours - so the signature is the entire boundary. `slack-verify.ts` verifies over
+the **raw** body (re-serialized JSON breaks it), with a 5-minute replay window and a
+constant-time compare.
+
+**One request cannot be verified: `url_verification`.** Slack fires it when the app is created,
+before we could know that app's signing secret. So `isUrlVerification` is deliberately narrow -
+it refuses any body that also carries an `event`, because without that clause an unsigned
+request could reach the invoke path. Two regression tests pin it.
+
+That's also why **the agentId rides the URL path**: at challenge time there is no
+app-to-agent mapping to look it up from. It's the safer design anyway - a forged path selects
+the wrong signing secret and fails verification, whereas trusting `api_app_id` from the body
+would mean the body chose the key that validates it.
+
+After verification: the bot's own events are dropped (or an agent that mentions itself storms
+the channel), a Slack retry is acked without re-dispatching (a duplicate run would double-post
+and double-bill), and anything outside the channel allowlist is dropped with a 200 - a
+deliberate drop is not a failure, and a non-2xx would make Slack retry.
+
+### One thread = one session = mid-turn injection
+
+`thread_ts` is stable for a thread's life, so the session id is
+`slack-<channel>-<threadTs>`. A follow-up mention in a live thread therefore lands on the
+**same session** and is *injected into the running turn* rather than starting a second one -
+the platform's load-bearing feature surfacing as something a Slack user can feel.
+
+(The runtime-facing id is still hashed per-agent by `runtimeSessionIdFor`, so two agents in
+one thread can't collide on a microVM.)
+
+### The agent never holds the bot token
+
+`slack_reply` and `slack_set_status` are wired **only when the invoke payload carries
+`fromSlack`** - the trigger is the signal, exactly as integration tools are wired only when
+integrations were resolved. Both POST to `/internal/slack/call` with the per-session
+capability token, and the control-plane derives the target channel + thread from that token's
+`sessionId`. So there is no channel parameter for a prompt-injected agent to aim elsewhere,
+and a compromised microVM has no Slack credential to steal.
+
+Status reactions map the run's lifecycle: ⏳ working → ✅ done / ❌ failed / ❓ needs input. They
+target the message that **invoked** the agent, which is not the same as the session key: for a
+mention inside a thread the session key is the thread PARENT (often someone else's message, days
+old), so reacting to it would decorate the wrong message. The invoking ts therefore rides the
+session token as an appended `replyToTs` claim - the token is per-invoke and already verified, so
+the agent still has no way to choose its own target. A reply always goes to the thread; only the
+reaction needs the exact message.
+
+### Almost no infrastructure - with one grant that is easy to miss
+
+The Slack trigger adds **no CDK resources and no networking**: the secrets live on the agent
+record, the user registers the webhook themselves by pasting the manifest, and neither Lambda is
+VPC-attached so both reach `slack.com` over normal egress. There is no `SlackProvisioner` either -
+unlike `schedule` there's no AWS resource to reconcile; the provisioner seam is for providers we
+must register with, and here the user does it.
+
+It does need **one IAM grant**, and getting this wrong is invisible until a real mention arrives.
+`/internal/slack/call` is mounted on the shared Hono app, so in prod it runs on **`IngestFn`** -
+that's the only ingest URL the runtime has - not on `ControlPlaneFn`. `IngestFn` therefore needs
+`AGENTS_TABLE` + agents-table **read**, to reach the bot token and re-check the allowlist. Without
+it the table name falls back to a literal that doesn't exist and every reply fails with a 500,
+while the agent runs to completion and posts nothing: from Slack, indistinguishable from a broken
+bot. This is exactly the shape of the integrations proxy's grant, and for the same reason.
+
+The accepted cost: `IngestFn` can now read the agents table, which carries `slackSecrets` and
+`apiKeyHash`. The alternative - carrying the reply target in the session token so the record is
+never read - would drop the allowlist re-check that makes a revoked channel take effect on a
+thread that's already running.
+
+### The channel allowlist is a security control
+
+An agent with a bash tool that answers anywhere it's invited means **anyone who can `/invite`
+it can direct it**. So the allowlist is a required, explicit list; empty means nowhere; and
+every id is validated against the connected workspace at save time (`conversations.info`),
+because channel ids are workspace-scoped and a foreign one produces an agent that looks
+configured and silently ignores every mention.
+
+Private channels are supported - the manifest requests `groups:read`, which is what lets a private
+channel be validated at setup. **The bot must be `/invite`d to any channel, public or private:**
+Slack only delivers `app_mention` to an app that's in the conversation, so a channel it hasn't
+joined validates green, reports live, and drops every mention.
+
+The scope set is one scope per method we call, and the non-obvious pair is `channels:read` +
+`groups:read` - required by `conversations.info`. Slack's scope hierarchy does NOT let
+`channels:history` imply `channels:read`, so an earlier version of this manifest would have failed
+channel validation for every user with `missing_scope`.
+
+## Adding a managed trigger later (GitHub, …)
 
 The shape is deliberately uniform, so a new trigger is:
 
 1. A new member of the `Trigger` union in `packages/shared` (provider fields + an optional
    `prompt`).
 2. A `parseTriggers` branch validating it.
-3. A provisioner implementing the same reconcile/remove seam for that provider's AWS
-   resource (or external registration).
+3. Where the provider needs registration, the same reconcile/remove seam (`schedule`) or a
+   signature-verified webhook + setup endpoints (`slack`).
 4. A card in `apps/web/src/Triggers.tsx` - a toggle, provider fields, and a **clear "what
-   you must configure on your side"** panel (the Slack/GitHub cards are stubbed there today
-   as "Soon").
+   you must configure on your side"** panel (the GitHub card is stubbed there today as
+   "Soon"; the Slack card is the worked example).
 
 The design goal is *as managed as possible*: the platform owns the AWS/infra side; the user
 does the minimum, clearly-instructed setup on the provider side.

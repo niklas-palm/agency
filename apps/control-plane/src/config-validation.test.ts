@@ -196,7 +196,74 @@ describe("parseTriggers", () => {
 
   it("rejects a non-array or unknown type", () => {
     expect(parseTriggers("api")).toBeNull();
-    expect(parseTriggers([{ type: "slack" }])).toBeNull();
+    expect(parseTriggers([{ type: "webhook" }])).toBeNull();
+  });
+
+  describe("slack", () => {
+    it("accepts a bare slack trigger, defaulting to an EMPTY channel list (fail closed)", () => {
+      expect(parseTriggers([{ type: "slack" }])).toEqual([
+        { type: "api" },
+        { type: "slack", channels: [] },
+      ]);
+    });
+
+    it("keeps valid ids and dedupes channels", () => {
+      expect(
+        parseTriggers([
+          {
+            type: "slack",
+            channels: ["C0000000001", "C0000000001", "G0000000002"],
+            appId: "A0000000001",
+            teamId: "T0000000001",
+            teamName: "Example",
+            botUserId: "U0000000BOT",
+            urlVerified: true,
+          },
+        ]),
+      ).toEqual([
+        { type: "api" },
+        {
+          type: "slack",
+          channels: ["C0000000001", "G0000000002"],
+          appId: "A0000000001",
+          teamId: "T0000000001",
+          teamName: "Example",
+          botUserId: "U0000000BOT",
+          urlVerified: true,
+        },
+      ]);
+    });
+
+    it("rejects a malformed channel id rather than silently dropping it", () => {
+      // Silently dropping would mean the user sees a channel they added vanish; and an
+      // allowlist that quietly loses an entry is worse than one that refuses to save.
+      expect(parseTriggers([{ type: "slack", channels: ["not-a-channel"] }])).toBeNull();
+      expect(parseTriggers([{ type: "slack", channels: ["C0000000001", 42] }])).toBeNull();
+      expect(parseTriggers([{ type: "slack", channels: "C0000000001" }])).toBeNull();
+    });
+
+    it("drops ids with the wrong prefix, so a user id can't be used as a channel", () => {
+      expect(parseTriggers([{ type: "slack", channels: ["U0000000BOT"] }])).toBeNull();
+    });
+
+    it("ignores unparseable optional ids rather than storing junk", () => {
+      const out = parseTriggers([{ type: "slack", appId: "nope", teamId: 5, botUserId: null }]);
+      expect(out).toEqual([{ type: "api" }, { type: "slack", channels: [] }]);
+    });
+
+    it("allows at most one slack trigger", () => {
+      expect(parseTriggers([{ type: "slack" }, { type: "slack" }])).toBeNull();
+    });
+
+    it("caps the channel list", () => {
+      const many = Array.from({ length: 26 }, (_, i) => `C${String(i).padStart(10, "0")}`);
+      expect(parseTriggers([{ type: "slack", channels: many }])).toBeNull();
+    });
+
+    it("does not treat urlVerified as truthy-coercible", () => {
+      const out = parseTriggers([{ type: "slack", urlVerified: "yes" }]);
+      expect(out?.[1]).toEqual({ type: "slack", channels: [] });
+    });
   });
 });
 

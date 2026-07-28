@@ -63,7 +63,10 @@ control-plane depends only on the `AgentInvoker` interface, chosen by `MODE`:
   prod-only VPC property).
 
 (The `ScheduleProvisioner` seam - EventBridge vs local no-op - handles schedule triggers the
-same way.)
+same way. The `slack` trigger needs no provisioner: the user registers the webhook themselves by
+pasting the manifest we generate, so it works identically in both stacks as long as the API is
+reachable from Slack - which locally means it isn't, so exercise it with a signed fixture. See
+docs/triggers.md.)
 
 This is what makes the local docker-compose stack a faithful replica: identical app code,
 identical payloads and session semantics, only the transport differs. See

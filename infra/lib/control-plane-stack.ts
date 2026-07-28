@@ -186,11 +186,17 @@ export class ControlPlaneStack extends Stack {
         // Lambda too; it resolves the org-scoped integration record (READ ONLY) to
         // forward the call + inject the credential.
         INTEGRATIONS_TABLE: props.integrationsTable.tableName,
+        // The Slack proxy route (/internal/slack/call) also runs on this Lambda, and it resolves
+        // the agent record (READ ONLY) to reach the bot token + re-check the channel allowlist.
+        // Without this the table name fell back to a literal that doesn't exist, so every Slack
+        // reply failed with a 500 the agent was told not to retry - the agent would run, finish,
+        // and post nothing.
+        AGENTS_TABLE: props.agentsTable.tableName,
         RUNTIME_INGEST_KEY: ingestKeyValue,
         // Where a finished run's trajectory is archived, so it outlives the
         // trajectory table's 30-day TTL and stays openable in the run list.
         TRACES_BUCKET: props.tracesBucket.bucketName,
-        // The ingest app never invokes runtimes/reads agents; give it a harmless
+        // The ingest app never invokes runtimes; give it a harmless
         // issuer so config validation is happy. Management routes aren't meaningfully
         // reachable through its front doors (public HTTP API / private REST both hit
         // the same app, but management needs a JWT the runtime doesn't have, and this
@@ -211,6 +217,17 @@ export class ControlPlaneStack extends Stack {
     // forward the call; it never mutates integrations, so no write grant (the
     // credential secret leaves only via the outbound forward, never back to a caller).
     props.integrationsTable.grantReadData(ingestFn);
+    // READ ONLY on agents, for the Slack proxy. This does widen IngestFn's reach - the agent
+    // record carries `slackSecrets` and `apiKeyHash` - so it's stated deliberately rather than
+    // quietly, as the integrations grant was. The alternative (carrying the reply target in the
+    // session token so the record is never read) would drop the allowlist re-check that lets a
+    // revoked channel take effect on a thread that's already running.
+    props.agentsTable.grantReadData(ingestFn);
+    // READ ONLY on agents, for the Slack proxy above. This does widen IngestFn's reach: the
+    // agent record carries `slackSecrets` and `apiKeyHash`. Stated deliberately rather than
+    // quietly, as the integrations grant was - the alternative (carrying the reply target in the
+    // session token so the record is never read) would drop the allowlist re-check that lets a
+    // revoked channel take effect on a live thread.
 
     // Public runtime front door: a small public HTTP API fronting IngestFn. (NOT a
     // Lambda Function URL: `authType: NONE` gives the URL an AnyPrincipal `*` invoke

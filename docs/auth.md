@@ -26,6 +26,15 @@ The JWT and PAT authenticate the **management** API (`/agents`, `/skills`,
 **run** API (`/agents/:id/invoke`, `/agents/:id/sessions/:sessionId`) and is checked
 independently in the route (`authAgentByKey`), never touching the scope system.
 
+Two paths carry no Agency credential at all, and each has its own boundary:
+
+- **The Slack webhook** (`POST /webhooks/slack/:agentId`) - Slack cannot hold a credential of
+  ours, so an **HMAC over the raw body** with the agent's own signing secret is the entire
+  boundary. `url_verification` is the one request that can't be verified (Slack fires it at
+  app-creation, before we could know that app's secret), so the exemption is narrowed to a body
+  that carries *no* `event` - see docs/triggers.md.
+- **The `/internal/*` routes** - authed by the per-session capability token, below.
+
 ## The principal
 
 Both credential kinds resolve to one `Principal` (auth.ts):

@@ -61,6 +61,16 @@ import {
   normalizeEmail,
 } from "./repo/invites.js";
 import { mintSessionToken, verifySessionToken } from "./session-token.js";
+import { mountSlackRoutes } from "./slack-routes.js";
+import { dispatchSlackRun } from "./slack-dispatch.js";
+import { callSlack, type SlackCallRequest } from "./slack-proxy.js";
+import {
+  slackSetupState,
+  slackAuthTest,
+  slackChannelInfo,
+  withSlackVerification,
+} from "./slack-setup.js";
+import { slackManifest, slackRequestUrl, SLACK_BOT_SCOPES, slackOf } from "@agency/shared";
 import { generateApiKey, verifyApiKey } from "./apikey.js";
 import { generateAccessToken } from "./token.js";
 import {
@@ -673,6 +683,30 @@ export function buildRoutes(deps: Deps): Hono<Env> {
   // THIS session was granted, in its own org. The proxy composes the URL from the
   // stored baseUrl + operation path only (no agent-supplied host), injects the
   // credential, and returns status + capped body.
+  /**
+   * The Slack proxy - the agent's only way to reach Slack. Authed by the same per-session
+   * capability token as telemetry ingest, and the target thread is derived from that token's
+   * `sessionId`, NOT from the body: there is no channel parameter for a prompt-injected agent
+   * to aim elsewhere.
+   */
+  app.post("/internal/slack/call", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as (Partial<SlackCallRequest> & {
+      agentId?: string;
+      sessionId?: string;
+    }) | null;
+    const claims = verifySessionToken(tokenOf(c));
+    if (!claims) return c.json({ error: "invalid ingest token" }, 401);
+    if (body?.action !== "reply" && body?.action !== "set_status") {
+      return c.json({ error: "action must be reply or set_status" }, 400);
+    }
+    // agentId + sessionId come from the VERIFIED token, never the body - so the call cannot be
+    // aimed at another agent or another thread.
+    const result = await callSlack(claims.agentId, claims.sessionId, body as SlackCallRequest, claims.replyToTs);
+    // Always 200: a Slack-side failure is a TOOL result the model must read and adapt to
+    // ({error, hint}), not an HTTP error the runtime would retry blindly.
+    return c.json(result);
+  });
+
   app.post("/internal/integrations/call", async (c) => {
     const body = (await c.req.json().catch(() => null)) as Partial<IntegrationCallRequest> | null;
     if (!authIngest(c, body)) return c.json({ error: "invalid ingest token" }, 401);
@@ -717,6 +751,16 @@ export function buildRoutes(deps: Deps): Hono<Env> {
   app.use("/agents/:id/metrics", requireAuth);
   app.use("/agents/:id/runs", requireAuth);
   app.use("/agents/:id/runs/:runId", requireAuth);
+  // Nested paths need their own line - the /agents/:id prefix does NOT cover them (same reason
+  // integrations/:id/refresh needs one). Omitting these left the Slack setup routes reaching
+  // requireScope with no principal: a 500 rather than a 401.
+  app.use("/agents/:id/slack", requireAuth);
+  app.use("/agents/:id/slack/credentials", requireAuth);
+  app.use("/agents/:id/slack/channels", requireAuth);
+  // Nested paths need their own line - the /agents/:id prefix does NOT cover them (same reason
+  // integrations/:id/refresh needs one). Omitting these left the Slack setup routes reaching
+  // requireScope with no principal: a 500 rather than a 401, and one null-guard away from an
+  // unauthenticated credential write.
   app.use("/skills", requireAuth);
   app.use("/skills/:id", requireAuth);
   app.use("/integrations", requireAuth);
@@ -1855,6 +1899,128 @@ export function buildRoutes(deps: Deps): Hono<Env> {
 
     const res: PollResponse = { sessionId, status, events: delta, cursor };
     return c.json(res);
+  });
+
+  // ---- Slack setup (the UI's state machine) --------------------------------------------
+  // All three are gated on WRITE of the agent: connecting a Slack app changes what can invoke
+  // it, so it's a config-level act, not a read.
+
+  /**
+   * Everything the UI needs to render the current step: the derived state, the manifest to
+   * paste, and what we know about the connected workspace. Never returns a secret.
+   */
+  app.get("/agents/:id/slack", requireScope("read"), async (c) => {
+    const auth = authorize(c.var.principal, await getAgent(c.req.param("id")), "view", "you can't view this agent");
+    if (!auth.ok) return c.json({ error: auth.error }, auth.status);
+    const record = auth.record;
+    const trigger = slackOf(record.config);
+    if (!trigger) return c.json({ error: "this agent has no Slack trigger" }, 404);
+
+    return c.json({
+      state: slackSetupState(record),
+      manifest: slackManifest({
+        agentName: record.config.name,
+        description: record.description,
+        apiOrigin: PUBLIC_API_URL,
+        agentId: record.id,
+      }),
+      requestUrl: slackRequestUrl(PUBLIC_API_URL, record.id),
+      requestedScopes: [...SLACK_BOT_SCOPES],
+      // `hasBotToken` rather than the token: a write-only credential never comes back.
+      hasBotToken: Boolean(record.slackSecrets?.botToken),
+      appId: trigger.appId,
+      teamId: trigger.teamId,
+      teamName: trigger.teamName,
+      botUserId: trigger.botUserId,
+      grantedScopes: trigger.grantedScopes,
+      urlVerified: Boolean(trigger.urlVerified),
+      channels: trigger.channels,
+    });
+  });
+
+  /**
+   * Store the bot token (+ signing secret, which the user copies from Basic Information) and
+   * immediately verify with `auth.test`, so the reply tells the user which workspace they
+   * actually connected and what Slack actually granted.
+   */
+  app.put("/agents/:id/slack/credentials", requireScope("write"), async (c) => {
+    const auth = authorize(c.var.principal, await getAgent(c.req.param("id")), "write", "you can't edit this agent");
+    if (!auth.ok) return c.json({ error: auth.error }, auth.status);
+    const record = auth.record;
+    const trigger = slackOf(record.config);
+    if (!trigger) return c.json({ error: "this agent has no Slack trigger" }, 404);
+
+    const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+    const botToken = typeof body?.botToken === "string" ? body.botToken.trim() : "";
+    const signingSecret = typeof body?.signingSecret === "string" ? body.signingSecret.trim() : "";
+    if (!botToken || !signingSecret) {
+      return c.json({ error: "botToken and signingSecret are both required" }, 400);
+    }
+
+    // Verify BEFORE storing: a token that doesn't work should not be saved and reported as
+    // connected. This is also where we learn teamId/botUserId, which routing needs.
+    const verified = await slackAuthTest(botToken);
+    if (!verified.ok) return c.json({ error: verified.error, hint: verified.hint }, 400);
+
+    const triggers = record.config.triggers.map((t) =>
+      t.type === "slack" ? withSlackVerification(t, verified) : t,
+    );
+    // The secrets are not versioned config - they're credentials, and a version snapshot is
+    // a full config copy that a reader can fetch. Store them on the record; bump the version
+    // for the TRIGGER change through the shared path, so connecting Slack shows in history.
+    await updateAgent(record.id, { slackSecrets: { botToken, signingSecret } });
+    await applyNewVersion(deps, record, { ...record.config, triggers }, "connected Slack");
+    return c.json({
+      teamId: verified.teamId,
+      teamName: verified.teamName,
+      botUserId: verified.botUserId,
+      grantedScopes: verified.grantedScopes,
+    });
+  });
+
+  /**
+   * Set the channel allowlist. Every channel is validated against the CONNECTED workspace
+   * first: a well-formed id from another workspace would otherwise produce an agent that looks
+   * configured and silently ignores every mention.
+   */
+  app.put("/agents/:id/slack/channels", requireScope("write"), async (c) => {
+    const auth = authorize(c.var.principal, await getAgent(c.req.param("id")), "write", "you can't edit this agent");
+    if (!auth.ok) return c.json({ error: auth.error }, auth.status);
+    const record = auth.record;
+    const trigger = slackOf(record.config);
+    if (!trigger) return c.json({ error: "this agent has no Slack trigger" }, 404);
+    const botToken = record.slackSecrets?.botToken;
+    if (!botToken || !trigger.teamId) {
+      return c.json({ error: "connect the Slack app first" }, 409);
+    }
+
+    const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+    const requested = Array.isArray(body?.channels) ? body.channels : null;
+    if (!requested) return c.json({ error: "channels must be an array" }, 400);
+    if (requested.length > 25) return c.json({ error: "at most 25 channels" }, 400);
+
+    const resolved: Array<{ id: string; name: string; isPrivate: boolean }> = [];
+    for (const raw of requested) {
+      if (typeof raw !== "string") return c.json({ error: "channel ids must be strings" }, 400);
+      const info = await slackChannelInfo(botToken, raw.trim(), trigger.teamId);
+      if ("ok" in info && info.ok === false) {
+        return c.json({ error: info.error, hint: info.hint, channel: raw }, 400);
+      }
+      resolved.push(info as { id: string; name: string; isPrivate: boolean });
+    }
+
+    const triggers = record.config.triggers.map((t) =>
+      t.type === "slack" ? { ...t, channels: resolved.map((r) => r.id) } : t,
+    );
+    await applyNewVersion(deps, record, { ...record.config, triggers }, "set Slack channels");
+    return c.json({ channels: resolved });
+  });
+
+  // The Slack webhook. Public + unauthenticated by necessity (Slack can hold no credential of
+  // ours), so its HMAC is the whole boundary - see slack-routes.ts for the ordered checks.
+  mountSlackRoutes(app, {
+    dispatch: ({ record, prompt, sessionId, messageTs }) =>
+      dispatchSlackRun(deps.invoker, { record, prompt, sessionId, messageTs }),
   });
 
   return app;

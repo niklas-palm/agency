@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Agent, Integration, ModelKey, ScheduleTrigger, TrajectoryEvent } from "@agency/shared";
-import { scheduleOf, MODEL_KEYS, isModelAllowedInNetworkMode } from "@agency/shared";
+import { scheduleOf, slackOf, MODEL_KEYS, isModelAllowedInNetworkMode } from "@agency/shared";
 import { Check, Eye, EyeOff, KeyRound, Play, Send, Trash2 } from "lucide-react";
 import { getAgent, updateAgent, invokeAgent, pollSession, deleteAgent, rotateAgentKey } from "../api.js";
 import { useCan, useOrg } from "../OrgContext.js";
@@ -272,11 +272,21 @@ function ConfigEditor({ agent, onSaved, canWrite }: { agent: Agent; onSaved: (a:
   const integrationNames = allIntegrations.filter((i) => integrationIds.includes(i.id)).map((i) => i.name);
   const [env, setEnv] = useState<Record<string, string>>(agent.config.env ?? {});
   const [schedule, setSchedule] = useState<ScheduleTrigger | null>(scheduleOf(agent.config) ?? null);
+  // The Slack trigger is a toggle here; the setup panel inside the card owns everything else
+  // (appId/teamId/channels are written by the dedicated Slack endpoints, not this form). So we
+  // carry the EXISTING trigger through on save rather than rebuilding it, or a save from this
+  // form would wipe the connected workspace.
+  const existingSlack = slackOf(agent.config);
+  const [slackEnabled, setSlackEnabled] = useState(Boolean(existingSlack));
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState("");
 
-  const triggers = [{ type: "api" as const }, ...(schedule ? [schedule] : [])];
+  const triggers = [
+    { type: "api" as const },
+    ...(schedule ? [schedule] : []),
+    ...(slackEnabled ? [existingSlack ?? { type: "slack" as const, channels: [] }] : []),
+  ];
   const scheduleIncomplete = schedule !== null && (!schedule.prompt.trim() || !schedule.expression.trim());
   // A config change bumps the agent's version; a description change does not.
   const configDirty =
@@ -439,7 +449,15 @@ function ConfigEditor({ agent, onSaved, canWrite }: { agent: Agent; onSaved: (a:
         <EnvEditor value={env} onChange={setEnv} />
 
         <Divider label="Triggers" />
-        <TriggersEditor invokeUrl={agent.invokeUrl} schedule={schedule} onScheduleChange={setSchedule} />
+        <TriggersEditor
+          invokeUrl={agent.invokeUrl}
+          schedule={schedule}
+          onScheduleChange={setSchedule}
+          slackEnabled={slackEnabled}
+          onSlackToggle={setSlackEnabled}
+          agentId={agent.id}
+          canWrite={canWrite}
+        />
 
         {/* Org sharing is metadata (no version bump) - only writers can change it. */}
         {canWrite && (

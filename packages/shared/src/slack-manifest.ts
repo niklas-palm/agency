@@ -1,0 +1,109 @@
+/**
+ * The Slack app manifest we hand the user to paste.
+ *
+ * This is the whole setup UX. Slack's "create an app from a manifest" flow reads name,
+ * scopes, event subscriptions AND the request URL out of one JSON document, which collapses
+ * a dozen manual toggles into a single paste. Because our webhook origin is known at deploy
+ * time, we can bake the URL in - so nothing is left for the user to type.
+ *
+ * Why the user pastes this rather than us calling `apps.manifest.create` ourselves: that API
+ * needs an app-configuration token, which can create or modify ANY app in the user's
+ * workspace, is single-use with a 12h rotation, and dies silently if a rotation isn't
+ * persisted. Fine for a script an agent babysits; a support ticket in a self-service UI. The
+ * manifest costs the user one extra paste and costs us no high-value credential at all.
+ */
+
+/**
+ * Scopes the bot needs - exactly one per API method we actually call, and no more. A token that
+ * can do more than the code does is blast radius the feature never uses.
+ *
+ * `channels:read` + `groups:read` are the non-obvious pair: they're required by
+ * `conversations.info`, which validates a channel against the connected workspace at setup. The
+ * `*:history` scopes do NOT imply them (Slack's scope hierarchy is explicit about this), so
+ * requesting history instead would fail channel validation for every user with `missing_scope`.
+ * `groups:read` is also what lets a PRIVATE channel be validated and used.
+ */
+export const SLACK_BOT_SCOPES = [
+  // Receive the @-mentions that invoke the agent.
+  "app_mentions:read",
+  // Resolve a channel at setup (conversations.info): public, then private.
+  "channels:read",
+  "groups:read",
+  // Reply in the thread (chat.postMessage) and signal progress (reactions.add).
+  "chat:write",
+  "reactions:write",
+] as const;
+
+/**
+ * Slack rejects an app name over 35 chars, and the name is the bot's public identity, so a
+ * silent truncation would be worse than a visible one.
+ */
+const MAX_APP_NAME = 35;
+
+export interface SlackManifestInput {
+  /** The agent's name - becomes the bot people @-mention. */
+  agentName: string;
+  /** The agent's description, if it has one - shown in Slack's app directory listing. */
+  description?: string;
+  /** Our public API origin, e.g. `https://api.example.com`. */
+  apiOrigin: string;
+  /** The agent's id - rides the webhook PATH (see `SlackTrigger`). */
+  agentId: string;
+}
+
+/**
+ * Slack's display name rules: <=35 chars, and it must not be blank. We don't attempt to
+ * sanitize beyond that - a name Slack rejects should surface as Slack's own error, which is
+ * clearer than a guess we made silently.
+ */
+export function slackAppName(agentName: string): string {
+  const trimmed = agentName.trim();
+  if (!trimmed) return "agency-agent";
+  return trimmed.length > MAX_APP_NAME ? trimmed.slice(0, MAX_APP_NAME) : trimmed;
+}
+
+/** The events URL for one agent. The agentId is in the PATH - see `SlackTrigger` for why. */
+export function slackRequestUrl(apiOrigin: string, agentId: string): string {
+  return `${apiOrigin.replace(/\/+$/, "")}/webhooks/slack/${agentId}`;
+}
+
+/**
+ * Build the complete manifest. Everything Slack needs is here: no post-creation toggling,
+ * which is the failure mode of a "manifest minus events" approach (the user forgets, and the
+ * app looks installed but never delivers an event).
+ */
+export function slackManifest(input: SlackManifestInput): Record<string, unknown> {
+  const name = slackAppName(input.agentName);
+  const description =
+    input.description?.trim().slice(0, 140) || `An Agency agent. Mention @${name} to run it.`;
+  return {
+    display_information: {
+      name,
+      description,
+      background_color: "#1f2933",
+    },
+    features: {
+      bot_user: {
+        display_name: name,
+        // The agent replies in-thread; it doesn't need to appear always-online.
+        always_online: false,
+      },
+    },
+    oauth_config: {
+      scopes: { bot: [...SLACK_BOT_SCOPES] },
+    },
+    settings: {
+      event_subscriptions: {
+        request_url: slackRequestUrl(input.apiOrigin, input.agentId),
+        // Only app_mention: the agent acts when addressed. Subscribing to every message in
+        // every channel would multiply cost and invite loops for no added capability.
+        bot_events: ["app_mention"],
+      },
+      // Nothing in v1 uses interactive components or slash commands, and an unused
+      // interactivity URL is one more thing that can be misconfigured.
+      org_deploy_enabled: false,
+      socket_mode_enabled: false,
+      token_rotation_enabled: false,
+    },
+  };
+}

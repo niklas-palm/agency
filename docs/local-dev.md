@@ -118,6 +118,15 @@ switches the DynamoDB client to DynamoDB Local.
 and past runs serve from the trajectory table alone. That table is TTL'd at 30 days, so a
 local run older than that opens with no steps - in prod it would come from the archive.
 
+**Slack locally**: the trigger works - the webhook, verification, routing and the reply proxy are
+all plain app code - but Slack can't reach `localhost`, so nothing arrives on its own. Exercise it
+by POSTing a **signed fixture** to `/webhooks/slack/<agentId>`: store a signing secret on the
+agent, then sign `v0:{timestamp}:{rawBody}` with it exactly as Slack does (see
+`slack-verify.test.ts` for the two lines that produce a valid header pair). The reply leg needs a
+real bot token, so a local run posts nothing - assert on the trajectory instead. This is a
+deliberate divergence: prod needs a publicly reachable URL, and tunnelling one from a dev machine
+is the user's choice, not the platform's.
+
 **Network mode locally**: `config.networkMode` ("public"|"isolated") rides the invoke payload
 like any other config, so the local `HttpAgentInvoker` targets the single local runtime
 container for both - the *routing* and the config coupling (isolated ⇒ web tools off,

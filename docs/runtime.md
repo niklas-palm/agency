@@ -57,6 +57,16 @@ docs/deployment.md.
   of returned into context, so the agent can fetch a dataset and compute over it with `run_bash`
   - the load-bearing pattern for a code agent (the prompt teaches when to use it). Works in ANY
   network mode (the proxy is reachable via PrivateLink when isolated). See docs/integrations.md.
+- `slack-tools.ts` - Slack reply tools, wired only when the invoke payload carries
+  `fromSlack` (the trigger is the signal, exactly like integrations): `slack_reply` posts into
+  the thread that invoked the agent and `slack_set_status` sets a status reaction (⏳ working →
+  ✅ done / ❌ failed / ❓ needs input). Both POST to `/internal/slack/call` with the same
+  per-session ingest token; the bot token never reaches the runtime, and the control-plane
+  derives the target channel + thread from the token's `sessionId` rather than from the request,
+  so the agent has no parameter with which to post anywhere else. `SLACK_PROMPT` is appended to
+  the system prompt for these runs - it exists mainly to tell the model that returning text is
+  NOT the same as posting it, which is the likeliest way a Slack run "succeeds" while the user
+  sees nothing. See docs/triggers.md.
 - `mailbox.ts` - mid-turn injection (see docs/injection.md).
 - `run.ts` - walks the Strands stream and POSTs each event to the ingest API.
 - `trajectory.ts` - builds trajectory events (UUIDv7-keyed) and posts them via `ingest.ts`.

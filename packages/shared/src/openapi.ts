@@ -127,6 +127,67 @@ export function buildOpenApiSpec(serverUrl: string) {
           },
         },
       },
+      "/agents/{id}/slack": {
+        parameters: [ORG_HEADER_PARAM, pathParam("id", "Agent id.")],
+        get: {
+          tags: ["Agents"],
+          summary: "Slack setup state",
+          description:
+            "Where the agent's Slack setup has got to, plus the app manifest to paste into " +
+            "Slack's from-a-manifest flow. The manifest already carries the scopes, the event " +
+            "subscription and this agent's webhook URL, so nothing needs configuring afterwards. " +
+            "Never returns a credential.",
+          security: [{ accountToken: [] }],
+          responses: {
+            "200": jsonResponse("The setup state and manifest.", "SlackSetupResponse"),
+            "401": UNAUTHORIZED,
+            "403": FORBIDDEN,
+            "404": jsonResponse("No Slack trigger on this agent.", "Error"),
+          },
+        },
+      },
+      "/agents/{id}/slack/credentials": {
+        parameters: [ORG_HEADER_PARAM, pathParam("id", "Agent id.")],
+        put: {
+          tags: ["Agents"],
+          summary: "Store the Slack credentials",
+          description:
+            "Stores the bot token + signing secret (write-only, never returned) and verifies " +
+            "them with Slack's auth.test before saving - so a token that doesn't work is never " +
+            "recorded as connected. The response reports which workspace was connected and " +
+            "which scopes Slack actually granted.",
+          security: [{ accountToken: [] }],
+          requestBody: { required: true, content: { "application/json": { schema: ref("SlackCredentialsInput") } } },
+          responses: {
+            "200": jsonResponse("The verified workspace.", "SlackCredentialsResponse"),
+            "400": jsonResponse("Slack rejected the token, or a field is missing.", "Error"),
+            "401": UNAUTHORIZED,
+            "403": FORBIDDEN,
+            "404": jsonResponse("No Slack trigger on this agent.", "Error"),
+          },
+        },
+      },
+      "/agents/{id}/slack/channels": {
+        parameters: [ORG_HEADER_PARAM, pathParam("id", "Agent id.")],
+        put: {
+          tags: ["Agents"],
+          summary: "Set the Slack channel allowlist",
+          description:
+            "Replaces the list of channels the agent may answer in. Each id is validated " +
+            "against the CONNECTED workspace first: channel ids are workspace-scoped, and an id " +
+            "from another workspace would leave an agent that looks configured but silently " +
+            "ignores every mention. An empty list means the agent answers nowhere.",
+          security: [{ accountToken: [] }],
+          requestBody: { required: true, content: { "application/json": { schema: ref("SlackChannelsInput") } } },
+          responses: {
+            "200": jsonResponse("The resolved channels.", "SlackChannelsResponse"),
+            "400": jsonResponse("A channel id is invalid or in another workspace.", "Error"),
+            "401": UNAUTHORIZED,
+            "403": FORBIDDEN,
+            "409": jsonResponse("Slack isn't connected yet.", "Error"),
+          },
+        },
+      },
       "/agents/{id}/versions": {
         parameters: [ORG_HEADER_PARAM, pathParam("id", "Agent id.")],
         get: {
@@ -844,6 +905,79 @@ function buildSchemas() {
     required: ["error", "sessionId"],
   },
 
+  SlackSetupResponse: {
+    type: "object",
+    description: "The Slack setup state plus the manifest to paste. Carries no credential.",
+    properties: {
+      state: {
+        type: "string",
+        enum: ["manifest_ready", "url_verified", "needs_bot_token", "verified", "live"],
+        description:
+          "Derived, never stored: manifest_ready → url_verified (Slack reached our webhook) → " +
+          "needs_bot_token → verified (workspace known) → live (a channel is set).",
+      },
+      manifest: { type: "object", description: "The complete Slack app manifest to paste." },
+      requestUrl: { type: "string", description: "The webhook URL baked into the manifest." },
+      requestedScopes: { type: "array", items: { type: "string" } },
+      hasBotToken: { type: "boolean", description: "Whether a bot token is stored (never the token)." },
+      appId: { type: "string" },
+      teamId: { type: "string" },
+      teamName: { type: "string" },
+      botUserId: { type: "string" },
+      grantedScopes: { type: "array", items: { type: "string" } },
+      urlVerified: { type: "boolean" },
+      channels: { type: "array", items: { type: "string" } },
+    },
+    required: ["state", "manifest", "requestUrl", "requestedScopes", "hasBotToken", "urlVerified", "channels"],
+  },
+  SlackCredentialsInput: {
+    type: "object",
+    description: "The two values only the workspace owner can get. Both are write-only.",
+    properties: {
+      botToken: { type: "string", description: "Bot User OAuth Token (xoxb-…), from OAuth & Permissions." },
+      signingSecret: { type: "string", description: "Signing Secret, from Basic Information." },
+    },
+    required: ["botToken", "signingSecret"],
+  },
+  SlackCredentialsResponse: {
+    type: "object",
+    description: "What Slack reported when the token was verified.",
+    properties: {
+      teamId: { type: "string" },
+      teamName: { type: "string" },
+      botUserId: { type: "string" },
+      grantedScopes: {
+        type: "array",
+        items: { type: "string" },
+        description: "What Slack GRANTED, from the auth.test response - not what we requested.",
+      },
+    },
+    required: ["teamId", "teamName", "botUserId", "grantedScopes"],
+  },
+  SlackChannelsInput: {
+    type: "object",
+    properties: { channels: { type: "array", items: { type: "string" } } },
+    required: ["channels"],
+  },
+  SlackChannelsResponse: {
+    type: "object",
+    properties: {
+      channels: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            name: { type: "string" },
+            isPrivate: { type: "boolean" },
+          },
+          required: ["id", "name", "isPrivate"],
+        },
+      },
+    },
+    required: ["channels"],
+  },
+
   Trigger: {
     description: "What can trigger the agent. Always includes an `api` trigger.",
     oneOf: [
@@ -857,6 +991,37 @@ function buildSchemas() {
           prompt: { type: "string", description: "Message delivered to the agent on each tick." },
         },
         required: ["type", "expression", "prompt"],
+      },
+      {
+        type: "object",
+        description:
+          "Slack: the agent runs when its bot is @-mentioned in an allowed channel. One Slack " +
+          "app per agent - the app is the agent's identity in Slack. Everything but `channels` " +
+          "is written by the /agents/{id}/slack endpoints, not by a config PATCH.",
+        properties: {
+          type: { const: "slack" },
+          channels: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "Channel ids the agent may answer in. EMPTY MEANS NOWHERE - the agent is " +
+              "connected but every mention is dropped.",
+          },
+          appId: { type: "string", description: "Slack app id (read-only here)." },
+          teamId: { type: "string", description: "Slack workspace id (read-only here)." },
+          teamName: { type: "string", description: "Workspace name, for display (read-only here)." },
+          botUserId: { type: "string", description: "The bot's user id (read-only here)." },
+          grantedScopes: {
+            type: "array",
+            items: { type: "string" },
+            description: "Scopes Slack actually granted, read from auth.test (read-only here).",
+          },
+          urlVerified: {
+            type: "boolean",
+            description: "True once Slack's url_verification challenge has been answered.",
+          },
+        },
+        required: ["type", "channels"],
       },
     ],
   },

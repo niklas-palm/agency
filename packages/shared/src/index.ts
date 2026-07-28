@@ -24,6 +24,13 @@ export { ROLES, ALL_ROLES, isRole, scopesForRole } from "./org.js";
 // The SSRF policy table (a plain address list, no node APIs) - imported by BOTH
 // outbound guards' tests so they can't assert different policies. See ssrf-policy.ts.
 export { BLOCKED_ADDRESSES, ALLOWED_ADDRESSES } from "./ssrf-policy.js";
+export {
+  SLACK_BOT_SCOPES,
+  slackAppName,
+  slackRequestUrl,
+  slackManifest,
+} from "./slack-manifest.js";
+export type { SlackManifestInput } from "./slack-manifest.js";
 export type { Role, Org, Membership, OrgMembership, Member, Invite, Me } from "./org.js";
 
 /**
@@ -38,7 +45,7 @@ export type { Role, Org, Membership, OrgMembership, Member, Invite, Me } from ".
  *
  * Future members will follow the same shape: `{ type, …provider fields, prompt? }`.
  */
-export type TriggerType = "api" | "schedule";
+export type TriggerType = "api" | "schedule" | "slack";
 
 export interface ApiTrigger {
   type: "api";
@@ -54,7 +61,58 @@ export interface ScheduleTrigger {
   prompt: string;
 }
 
-export type Trigger = ApiTrigger | ScheduleTrigger;
+/**
+ * Slack: the agent is invoked when someone @-mentions its bot in an allowed channel.
+ *
+ * ONE Slack app per agent, because the app IS the agent's identity in Slack - its name,
+ * avatar and bot user are what people @-mention. The user creates it by pasting a manifest
+ * we generate (see `slackManifest`), so we never hold a Slack app-configuration token: that
+ * credential could reshape any app in their workspace, and its single-use/12h rotation
+ * semantics need a retrying agent to survive, not a self-service form.
+ *
+ * `appId` is the routing key we care about operationally, but the webhook URL carries the
+ * agentId in its path instead - at `url_verification` time (which Slack fires when the app
+ * is CREATED, before any install) we don't yet know the appId, so the path is the only way
+ * to know which agent a challenge belongs to.
+ *
+ * The two secrets (signing secret, bot token) live on the agent record, never here.
+ */
+export interface SlackTrigger {
+  type: "slack";
+  /** Slack's app id (`A…`), recorded once the app exists. Absent until then. */
+  appId?: string;
+  /** Slack's workspace id (`T…`), learned from `auth.test` after the bot token lands. */
+  teamId?: string;
+  /** The workspace name, for display only - so the UI can say WHICH workspace is connected. */
+  teamName?: string;
+  /** Our bot's user id (`U…`), from `auth.test`. Used to drop the bot's own events (loop guard). */
+  botUserId?: string;
+  /** Channel ids (`C…`/`G…`) the agent will answer in. Empty = answer nowhere (fail closed). */
+  channels: string[];
+  /** Scopes Slack actually GRANTED, read from `auth.test`'s `x-oauth-scopes`. Display only. */
+  grantedScopes?: string[];
+  /** True once Slack's `url_verification` challenge has been answered for this agent. */
+  urlVerified?: boolean;
+}
+
+export type Trigger = ApiTrigger | ScheduleTrigger | SlackTrigger;
+
+/** The Slack trigger on a config, if any. */
+export function slackOf(config: AgentConfig): SlackTrigger | undefined {
+  return config.triggers.find((t): t is SlackTrigger => t.type === "slack");
+}
+
+/**
+ * Where a Slack setup has got to. Derived from the trigger + whether the secrets exist,
+ * never stored - so it can't go stale, and a user who abandons setup halfway resumes
+ * exactly where they left off.
+ */
+export type SlackSetupState =
+  | "manifest_ready"
+  | "url_verified"
+  | "needs_bot_token"
+  | "verified"
+  | "live";
 
 /**
  * The creator-controlled configuration of an agent. Stored verbatim in the
@@ -408,6 +466,14 @@ export interface RuntimePayload {
    * session the agent already is, and only the integrations it was granted.
    */
   ingestToken?: string;
+  /**
+   * True when this run was started by a Slack mention. The runtime wires its Slack tools and
+   * prompt block from this flag alone - the trigger IS the signal, exactly as integration
+   * tools are wired from `integrations` being present. Nothing Slack-specific (no channel, no
+   * token) needs to reach the runtime: the control-plane derives the reply target from the
+   * session id, so the agent has no way to name a different one.
+   */
+  fromSlack?: boolean;
 }
 
 /** A skill as delivered to the runtime: enough to build a Strands `Skill`. */
