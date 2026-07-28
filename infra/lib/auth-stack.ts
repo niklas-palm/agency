@@ -12,16 +12,22 @@ import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { COGNITO_DOMAIN_PREFIX, M2M_SCOPE, RESOURCE_SERVER_ID, REGION } from "./config.js";
+import type { DomainConfig } from "./domain.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, "..", "..");
+
+interface AuthStackProps extends StackProps {
+  /** The custom domain, when configured - it is the app origin the invite email links to. */
+  domain?: DomainConfig;
+}
 
 export class AuthStack extends Stack {
   readonly userPool: cognito.UserPool;
   readonly userPoolClient: cognito.UserPoolClient;
   readonly m2mClient: cognito.UserPoolClient;
 
-  constructor(scope: Construct, id: string, props?: StackProps) {
+  constructor(scope: Construct, id: string, props?: AuthStackProps) {
     super(scope, id, props);
 
     // The web app origin (CloudFront). Its only use now is the invite email's
@@ -31,20 +37,24 @@ export class AuthStack extends Stack {
     // historical; it's really just the app origin.
     // REQUIRED for anything but a throwaway stack. It's the sign-in link in the invite
     // email, so a wrong value mails your users at someone else's app - which is why the
-    // repo ships no default. Set it in infra/cdk.context.json (gitignored) or with
-    // `-c webCallbackUrl=…`. Falling back to localhost is only sane for local dev, so
-    // say so loudly rather than shipping broken invite emails.
+    // repo ships no default. With a custom domain configured the SPA's origin IS that
+    // link, so it's derived from `domainName` and needs no second setting; otherwise set
+    // it in infra/cdk.context.json (gitignored) or with `-c webCallbackUrl=…`. Falling
+    // back to localhost is only sane for local dev, so say so loudly rather than
+    // shipping broken invite emails.
     // Globally unique per region, so a second deployment in the same region needs its
     // own. Defaults to ours; override with `-c cognitoDomainPrefix=…`.
     const domainPrefix =
       (this.node.tryGetContext("cognitoDomainPrefix") as string | undefined) ?? COGNITO_DOMAIN_PREFIX;
 
     const webCallbackUrl = this.node.tryGetContext("webCallbackUrl") as string | undefined;
-    const appUrl = webCallbackUrl ?? "http://localhost:5173/";
-    if (!webCallbackUrl) {
+    const siteUrl = props?.domain ? `https://${props.domain.siteDomain}/` : undefined;
+    const appUrl = webCallbackUrl ?? siteUrl ?? "http://localhost:5173/";
+    if (!webCallbackUrl && !siteUrl) {
       Annotations.of(this).addWarning(
-        "webCallbackUrl is not set - invite emails will link to http://localhost:5173/. " +
-          "Set it in infra/cdk.context.json or pass -c webCallbackUrl=https://your-app/",
+        "neither webCallbackUrl nor domainName is set - invite emails will link to " +
+          "http://localhost:5173/. Set one in infra/cdk.context.json or pass " +
+          "-c webCallbackUrl=https://your-app/",
       );
     }
 

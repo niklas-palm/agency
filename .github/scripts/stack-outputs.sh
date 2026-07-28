@@ -4,7 +4,9 @@
 #
 # Read from CloudFormation rather than repo variables on purpose: these values change when a
 # stack is recreated, and a stale repo variable produces an SPA silently pointed at the wrong
-# API. The source of truth is the deployment.
+# API. The source of truth is the deployment. (One exception, below: with a custom domain the
+# API host is `api.<domain>` by construction, and on the deploy that introduces it the stack
+# output still names the old host.)
 #
 # A missing stack is NOT an error - on a first-ever deploy nothing exists yet, so every value
 # is empty and the caller skips the web build (see deploy.yml). That's what makes the
@@ -25,6 +27,15 @@ SITE_BUCKET=$(get AgencyWeb SiteBucketName)
 DISTRIBUTION_ID=$(get AgencyWeb DistributionId)
 USER_POOL_ID=$(get AgencyAuth UserPoolId)
 WEB_CLIENT_ID=$(get AgencyAuth WebClientId)
+
+# With a custom domain configured (AGENCY_DOMAIN_NAME - see deploy.yml), the API host is
+# `api.<domain>` by construction, so prefer it over the output. On the deploy that FIRST
+# introduces the domain the deployed output still names the execute-api endpoint, and a
+# bundle built against that host would be stale the moment the deploy lands - smoke.sh
+# compares the served bundle against the post-deploy ApiUrl and would rightly fail it.
+if [ -n "${AGENCY_DOMAIN_NAME:-}" ]; then
+  API_URL="https://api.${AGENCY_DOMAIN_NAME}"
+fi
 
 # The Cognito output keys have drifted before; fall back to a contains-match so a rename
 # doesn't silently produce an SPA that can't sign in.

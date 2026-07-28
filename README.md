@@ -98,7 +98,8 @@ Full detail, including the credential and region reasoning: [docs/local-dev.md](
 ## Deploying to AWS
 
 [docs/deployment.md](docs/deployment.md) is the reference. Read it before running anything -
-the short version is five CDK stacks (six with the opt-in sample API), and the web bundle must
+the short version is five CDK stacks (plus one each for an optional custom domain and the
+opt-in sample API), and the web bundle must
 be built with the API and Cognito ids baked in **before** `cdk deploy` (Vite inlines them at
 build time, so a missing `VITE_API_URL` produces an SPA pointed at the wrong origin).
 

@@ -40,7 +40,10 @@ infra                CDK: AgencyAuth, AgencyData (agents/trajectory/tokens/versi
                      that outlives the trajectory table's TTL - traces are kept FOREVER,
                      no lifecycle expiry), AgencyControlPlane,
                      AgencyWebSearch (a us-east-1 web-search gateway reached cross-region),
-                     AgencyWeb, AgencySampleApi (opt-in, `-c sampleApi=true`).
+                     AgencyWeb, AgencyWebCert (the us-east-1 CloudFront cert, only when a
+                     custom domain is configured - `-c domainName=… -c hostedZoneId=…`;
+                     the API's cert is regional and lives in AgencyControlPlane),
+                     AgencySampleApi (opt-in, `-c sampleApi=true`).
 scripts              ensure-tables, e2e, models-e2e, mint-m2m-token.
 .github/             CI (typecheck + tests, no AWS creds) + CD on merge to main via OIDC.
                      Two deploy paths: UI-only (build + s3 sync + CDN invalidate) vs full
@@ -204,8 +207,8 @@ states the same rules for human contributors; if you change one, change both.
     any bug fixed (rule 14), and no scratch files left behind - especially under
     `apps/agent-runtime/src`, which is in the Docker build context, so a stray file changes
     the image hash and shows up as infra drift. For infra changes, include what `cdk diff`
-    shows; a clean tree should diff to zero on every stack (five, or six with
-    `-c sampleApi=true` - see `docs/deployment.md`).
+    shows; a clean tree should diff to zero on every stack (five, plus one each for a
+    custom domain and `-c sampleApi=true` - see `docs/deployment.md`).
 17. **Commit messages say what changed and *why it mattered*** - the failure mode, not the
     diff. Present tense, lowercase subject, no trailing period. `git log` here is
     documentation.

@@ -47,6 +47,15 @@ env:
   # the workflow reusable by a fork or a second deployment without editing it.
   # Set it once:  gh variable set AWS_DEPLOY_ROLE_ARN --body arn:aws:iam::<acct>:role/agency-github-deploy
   ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+  # The optional custom domain, repo variables for the same reason (a domain name and a
+  # hosted zone id are this deployment's identifiers). Both or neither; unset = serve on
+  # the CloudFront + execute-api hostnames. They must be set HERE as well as in a local
+  # infra/cdk.context.json: CDK context isn't tracked, so a CI deploy without them would
+  # tear a locally-configured custom domain back down.
+  #   gh variable set AGENCY_DOMAIN_NAME    --body agency.example.com
+  #   gh variable set AGENCY_HOSTED_ZONE_ID --body <hosted zone id of that domain>
+  AGENCY_DOMAIN_NAME: ${{ vars.AGENCY_DOMAIN_NAME }}
+  AGENCY_HOSTED_ZONE_ID: ${{ vars.AGENCY_HOSTED_ZONE_ID }}
 
 jobs:
   # Same gate as CI, re-run here: main can receive a direct push, and deploying code that
@@ -185,12 +194,15 @@ jobs:
       # Build the SPA BEFORE deploying, so AgencyWeb ships a real bundle rather than the
       # empty-site fallback. On a first-ever deploy the stacks don't exist yet, so the
       # outputs are empty and this is skipped - deploy once, then re-run to publish the SPA
-      # (see docs/deployment.md, "First deploy is TWO phases").
+      # (see docs/deployment.md, "First deploy is TWO phases"). The gate is the Cognito
+      # client id, not the API URL: with a custom domain configured the API URL is derived
+      # rather than read from a stack, so it's non-empty even before the first deploy - and
+      # a bundle built with no user pool can't sign anyone in.
       - name: Resolve stack outputs
         id: out
         run: bash .github/scripts/stack-outputs.sh
       - name: Build the SPA
-        if: steps.out.outputs.api_url != ''
+        if: steps.out.outputs.web_client_id != ''
         run: |
           cd apps/web
           VITE_API_URL='${{ steps.out.outputs.api_url }}' \
@@ -198,10 +210,19 @@ jobs:
           VITE_COGNITO_CLIENT_ID='${{ steps.out.outputs.web_client_id }}' \
             npx vite build
       - name: Assert the bundle was built against the real API
-        if: steps.out.outputs.api_url != ''
+        if: steps.out.outputs.web_client_id != ''
         run: bash .github/scripts/assert-bundle.sh '${{ steps.out.outputs.api_url }}'
       - name: cdk deploy --all
         working-directory: infra
-        run: npx cdk deploy --all --require-approval never --concurrency 4
+        # The domain context is passed only when configured, so an unset variable deploys
+        # exactly what it does today. A half-set pair is refused at synth (see
+        # infra/lib/domain.ts) rather than deploying half a domain.
+        run: |
+          set -euo pipefail
+          ctx=()
+          if [ -n "${AGENCY_DOMAIN_NAME:-}" ] || [ -n "${AGENCY_HOSTED_ZONE_ID:-}" ]; then
+            ctx=(-c "domainName=${AGENCY_DOMAIN_NAME:-}" -c "hostedZoneId=${AGENCY_HOSTED_ZONE_ID:-}")
+          fi
+          npx cdk deploy --all --require-approval never --concurrency 4 "${ctx[@]}"
       - name: Smoke-test the deployment
         run: bash .github/scripts/smoke.sh

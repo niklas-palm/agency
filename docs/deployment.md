@@ -1,18 +1,20 @@
 # Deployment
 
 Infra is CDK (`infra/`), one stack per concern. Region is `eu-north-1` (pinned in
-`infra/lib/config.ts`). Two capabilities remain us-east-1-only and are handled the same way -
-provisioned in us-east-1 and reached **cross-region** from the eu-north-1 public runtime (both
-SigV4-signed, public mode only): OpenAI-via-Mantle and the AgentCore web-search gateway (its
-own `AgencyWebSearch` stack in us-east-1; `AgencyControlPlane` sets `crossRegionReferences: true`
-to consume its outputs).
+`infra/lib/config.ts`). Three things remain us-east-1-only and are handled the same way -
+provisioned in us-east-1 and consumed from eu-north-1: OpenAI-via-Mantle and the AgentCore
+web-search gateway (its own `AgencyWebSearch` stack in us-east-1, reached **cross-region** and
+SigV4-signed by the public runtime; `AgencyControlPlane` sets `crossRegionReferences: true` to
+consume its outputs), and - only when a custom domain is configured - the CloudFront
+certificate (`AgencyWebCert`, read cross-region by `AgencyWeb`).
 
 ## Prerequisites
 
 - **Node >= 22**, and `npm install` at the repo root (this is a workspaces monorepo - installing
   inside `infra/` alone won't work).
 - **`cdk bootstrap` in TWO regions**: `eu-north-1` and `us-east-1`. The web-search gateway stack
-  lives in us-east-1 because that connector is us-east-1-only.
+  lives in us-east-1 because that connector is us-east-1-only - and so does the CloudFront
+  certificate stack if you configure a custom domain.
 - **Docker running, able to build `linux/arm64`.** The control-plane stack builds the
   agent-runtime container as an ARM64 `DockerImageAsset` (AgentCore requires arm64), so on an
   x86 host you need buildx/qemu.
@@ -171,12 +173,58 @@ CDK context carries the per-deployment values the repo can't ship a default for.
 
 | Key | Required? | What happens if unset |
 |---|---|---|
-| `webCallbackUrl` | **Yes** for anything but a throwaway | It's the sign-in link in the Cognito invite email, so your users get a `localhost` link - or someone else's app. Synth emits a warning. |
+| `webCallbackUrl` | **Yes** for anything but a throwaway, unless `domainName` is set | It's the sign-in link in the Cognito invite email, so your users get a `localhost` link - or someone else's app. With `domainName` set it defaults to that origin; otherwise synth emits a warning. |
+| `domainName` + `hostedZoneId` | No | No custom domain: the SPA serves on the CloudFront hostname and the API on its execute-api endpoint. See [Custom domain](#custom-domain). |
 | `cognitoDomainPrefix` | Only for a second deployment in one region | Defaults to `agency-auth`; the prefix is globally unique per region, so a second stack fails. |
 | `sampleApi` | No | `AgencySampleApi` is **opt-in**: `--all` leaves it out. Pass `-c sampleApi=true` to deploy the integrations E2E target. |
 
-So `cdk deploy --all` provisions **five** stacks; the sample API is the sixth only with
-`-c sampleApi=true`.
+So `cdk deploy --all` provisions **five** stacks - six with a custom domain (`AgencyWebCert`),
+and the sample API is one more with `-c sampleApi=true`.
+
+## Custom domain
+
+Optional, and off by default. Set **both** context keys - `domainName` (the apex the SPA is
+served on) and `hostedZoneId` (its public Route53 zone) - and the deployment answers on:
+
+| Host | Front door | Certificate |
+|---|---|---|
+| `<domainName>` | the CloudFront distribution (`AgencyWeb`) | **us-east-1**, in `AgencyWebCert` - CloudFront reads certificates from nowhere else |
+| `api.<domainName>` | the control-plane HTTP API (`AgencyControlPlane`) | **eu-north-1**, in `AgencyControlPlane` - an API Gateway *regional* custom domain requires a same-region certificate |
+
+Those two opposite certificate rules are the whole reason for the extra stack: a CloudFormation
+stack is single-region, so the CloudFront certificate needs a us-east-1 stack of its own (the
+same constraint that gives `AgencyWebSearch` one) and `AgencyWeb` reads its ARN via
+`crossRegionReferences`. The API host is always `api.<domainName>` - one decision, not two.
+
+What the deployment does with it:
+
+- Both certificates are **DNS-validated in that zone**, so the zone must already exist *and be
+  delegated* (the parent zone's NS records point at it). An undelegated zone doesn't fail fast:
+  CloudFormation waits on validation for hours and then times out.
+- `AgencyWeb` owns the apex **A + AAAA** alias records to CloudFront (dual-stack).
+  `AgencyControlPlane` owns the **A** alias for `api.` - a regional HTTP API custom domain is
+  IPv4-only, so an AAAA alias there would resolve to nothing.
+- The `ApiUrl` + `SiteUrl` outputs become the custom hosts, so the SPA build
+  (`VITE_API_URL`), the invoke URLs the API advertises (`PUBLIC_API_URL` → `invokeUrl`, the
+  OpenAPI `servers` entry, the coding-agent skill) and `smoke.sh` all follow automatically.
+- The **execute-api endpoint stays enabled** and the `*.cloudfront.net` hostname keeps serving:
+  agent keys already handed out carry invoke URLs on the old host.
+- The Cognito invite email's sign-in link defaults to `https://<domainName>/`, so
+  `webCallbackUrl` becomes unnecessary (set it only to override).
+
+**CI needs the same pair as repo variables**, because CDK context is not tracked - a deploy from
+CI without them would remove the domain a local deploy had configured:
+
+```bash
+gh variable set AGENCY_DOMAIN_NAME    --body agency.example.com
+gh variable set AGENCY_HOSTED_ZONE_ID --body <hosted zone id>
+```
+
+Setting only one half is refused at synth (`infra/lib/domain.ts`) rather than deploying half a
+domain. On the deploy that first introduces a domain the SPA is built against
+`https://api.<domainName>` *before* that host exists - which is deliberate: the bundle is only
+served after the same deploy creates the mapping and the records, and building it against the
+old host would make `smoke.sh`'s "served bundle targets this API" check fail immediately.
 
 ## Stacks
 
@@ -215,14 +263,22 @@ So `cdk deploy --all` provisions **five** stacks; the sample API is the sixth on
   docs/integrations.md). It no longer builds the web-search gateway (that moved to
   `AgencyWebSearch`); it grants the runtime role `InvokeGateway` on the us-east-1 gateway ARN
   and sets `WEB_SEARCH_GATEWAY_URL` + `WEB_SEARCH_REGION` on the **PUBLIC** runtime only (the
-  isolated runtime omits both - it has no cross-region egress).
+  isolated runtime omits both - it has no cross-region egress). With a custom domain configured
+  it also issues the **regional** certificate for `api.<domain>`, maps the HTTP API onto it and
+  owns that host's alias record (see [Custom domain](#custom-domain)).
 - **AgencyWebSearch** - a us-east-1 stack (AgentCore Web Search is **us-east-1 only**) holding
   the shared **web-search gateway** (`AWS::BedrockAgentCore::Gateway` fronting the managed
   `web-search` connector; the gateway role gets `InvokeWebSearch`). The eu-north-1 public
   runtime reaches it cross-region (SigV4-signed to `WEB_SEARCH_REGION`), so `web_search` works
   in public mode; `AgencyControlPlane` consumes its URL + ARN via `crossRegionReferences`.
 - **AgencyWeb** - the SPA on a private S3 bucket behind CloudFront (OAI). SPA routing
-  (403/404 → index.html) supports the hash router.
+  (403/404 → index.html) supports the hash router. With a custom domain configured it also
+  answers on that domain (certificate from `AgencyWebCert`, cross-region) and owns the apex
+  A + AAAA alias records.
+- **AgencyWebCert** (only with a custom domain) - a us-east-1 stack holding *just* the
+  DNS-validated certificate for the site domain, because CloudFront accepts certificates only
+  from us-east-1. `AgencyWeb` consumes the ARN via `crossRegionReferences`. See
+  [Custom domain](#custom-domain).
 - **AgencySampleApi** (**opt-in** - `-c sampleApi=true`; `--all` leaves it out) - a removable
   demo pet-store API (its own stack so it never entangles the platform;
   `cdk destroy AgencySampleApi`) used as the integrations E2E target. See docs/integrations.md.

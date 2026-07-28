@@ -4,7 +4,7 @@ import { defineConfig } from "vitest/config";
 // infra/cdk.out (which duplicate apps/* into the Docker build context).
 export default defineConfig({
   test: {
-    include: ["apps/**/src/**/*.test.ts", "packages/**/src/**/*.test.ts"],
+    include: ["apps/**/src/**/*.test.ts", "packages/**/src/**/*.test.ts", "infra/lib/**/*.test.ts"],
     exclude: ["**/node_modules/**", "**/cdk.out/**", "**/dist/**"],
   },
 });

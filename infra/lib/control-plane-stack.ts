@@ -30,7 +30,9 @@
  * - ControlPlaneFn: the Hono app on Lambda behind an HTTP API. Grants it
  *   InvokeAgentRuntime on BOTH runtimes + DynamoDB. No create/update/delete of
  *   runtimes (there's nothing per-agent to provision); the invoker picks the
- *   runtime ARN by the agent's network mode.
+ *   runtime ARN by the agent's network mode. With a custom domain configured
+ *   (infra/lib/domain.ts) that API also answers on `api.<domain>` via a regional
+ *   certificate issued here + an alias record.
  */
 import { Stack, type StackProps, CfnOutput, Duration } from "aws-cdk-lib";
 import { Construct } from "constructs";
@@ -42,6 +44,9 @@ import { DockerImageAsset, Platform } from "aws-cdk-lib/aws-ecr-assets";
 import * as apigw from "aws-cdk-lib/aws-apigatewayv2";
 import { HttpLambdaIntegration } from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import * as apigwRest from "aws-cdk-lib/aws-apigateway";
+import * as acm from "aws-cdk-lib/aws-certificatemanager";
+import * as route53 from "aws-cdk-lib/aws-route53";
+import * as route53Targets from "aws-cdk-lib/aws-route53-targets";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as s3 from "aws-cdk-lib/aws-s3";
@@ -53,6 +58,7 @@ import * as agentcore from "aws-cdk-lib/aws-bedrockagentcore";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { REGION, WEB_SEARCH_REGION } from "./config.js";
+import type { DomainConfig } from "./domain.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, "..", "..");
@@ -78,6 +84,12 @@ interface ControlPlaneStackProps extends StackProps {
    */
   webSearchGatewayUrl: string;
   webSearchGatewayArn: string;
+  /**
+   * Optional custom domain (infra/lib/domain.ts). When set, the API also answers on
+   * `api.<domain>` with a regional certificate this stack issues, and that host - not
+   * the execute-api one - becomes the advertised `PUBLIC_API_URL` + `ApiUrl` output.
+   */
+  domain?: DomainConfig;
 }
 
 export class ControlPlaneStack extends Stack {
@@ -638,11 +650,37 @@ export class ControlPlaneStack extends Stack {
       targets: [new eventsTargets.LambdaFunction(discoverySweepFn)],
     });
 
+    // ---- Optional custom domain for the API (api.<domain>) -------------------
+    // The certificate MUST be issued in THIS region: an API Gateway regional custom
+    // domain only accepts a same-region certificate (the mirror image of CloudFront,
+    // which only accepts us-east-1 - hence the separate AgencyWebCert stack). Both are
+    // DNS-validated in the same hosted zone.
+    const zone = props.domain
+      ? route53.HostedZone.fromHostedZoneAttributes(this, "Zone", {
+          hostedZoneId: props.domain.hostedZoneId,
+          zoneName: props.domain.siteDomain,
+        })
+      : undefined;
+    const apiDomainName =
+      props.domain && zone
+        ? new apigw.DomainName(this, "ApiDomainName", {
+            domainName: props.domain.apiDomain,
+            certificate: new acm.Certificate(this, "ApiCertificate", {
+              domainName: props.domain.apiDomain,
+              validation: acm.CertificateValidation.fromDns(zone),
+            }),
+          })
+        : undefined;
+
     // CORS is handled inside the Hono app (see app.ts), not here: the
     // `ANY /{proxy+}` route below sends OPTIONS preflights to the Lambda, which
     // would override any API Gateway CORS config anyway.
     const api = new apigw.HttpApi(this, "HttpApi", {
       apiName: "agency-control-plane",
+      // Maps the whole API (all stages' default stage) onto the custom domain. The
+      // execute-api endpoint stays enabled: agent keys already in the wild were issued
+      // with invoke URLs on it.
+      defaultDomainMapping: apiDomainName ? { domainName: apiDomainName } : undefined,
     });
     api.addRoutes({
       path: "/{proxy+}",
@@ -650,11 +688,29 @@ export class ControlPlaneStack extends Stack {
       integration: new HttpLambdaIntegration("Integration", fn),
     });
 
-    // Invoke URLs embed the API's public endpoint (routes.ts reads PUBLIC_API_URL);
-    // set it now that the HttpApi exists - apiEndpoint is known at synth time.
-    fn.addEnvironment("PUBLIC_API_URL", api.apiEndpoint);
+    if (props.domain && zone && apiDomainName) {
+      // `api` under the site-domain zone. A record only: a regional HTTP API custom
+      // domain is IPv4-only by default, so an AAAA alias would resolve to nothing.
+      new route53.ARecord(this, "ApiAliasA", {
+        zone,
+        recordName: "api",
+        target: route53.RecordTarget.fromAlias(
+          new route53Targets.ApiGatewayv2DomainProperties(
+            apiDomainName.regionalDomainName,
+            apiDomainName.regionalHostedZoneId,
+          ),
+        ),
+      });
+    }
 
-    new CfnOutput(this, "ApiUrl", { value: api.apiEndpoint });
+    // The origin we ADVERTISE: invoke URLs, the OpenAPI `servers` entry and the coding-agent
+    // skill are all built from PUBLIC_API_URL (routes.ts), and the SPA build reads the
+    // ApiUrl output - so with a custom domain configured they must all name it, not the
+    // execute-api host. apiEndpoint is known at synth time, as is the custom host.
+    const apiUrl = props.domain ? `https://${props.domain.apiDomain}` : api.apiEndpoint;
+    fn.addEnvironment("PUBLIC_API_URL", apiUrl);
+
+    new CfnOutput(this, "ApiUrl", { value: apiUrl });
     new CfnOutput(this, "RuntimeArn", { value: runtime.attrAgentRuntimeArn });
     new CfnOutput(this, "RuntimeArnIsolated", { value: runtimeIsolated.attrAgentRuntimeArn });
   }
