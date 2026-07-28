@@ -1,0 +1,7 @@
+{
+  "app": "npx tsx bin/agency.ts",
+  "context": {
+    "@aws-cdk/core:newStyleStackSynthesis": true,
+    "//webCallbackUrl": "REQUIRED for a real deploy: your web app origin. It is the sign-in link in the Cognito invite email, so a wrong value emails your users someone else's app. Set it in infra/cdk.context.json (gitignored) or pass -c webCallbackUrl=https://your-app/ . Unset = localhost, which only makes sense for local dev."
+  }
+}

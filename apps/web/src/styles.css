@@ -1,0 +1,231 @@
+/**
+ * Agency design system base — "Studio".
+ *
+ * Warm cream paper, warm-ink type, a marigold signature, pine green for life.
+ * The personality lives in the TYPE (Fraunces display serif) + color + generous
+ * space — not in decorative iconography. Machine data in IBM Plex Mono. Motion is
+ * quiet and functional: a short page rise, a fade for streamed rows, a soft pulse
+ * on live status. transform/opacity only; reduced-motion degrades gracefully.
+ */
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Hanken+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Strong, intentional easings (the CSS defaults are too weak). */
+    --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    /* Always show the vertical scrollbar track so switching between a short tab
+       (no scrollbar) and a tall one (scrollbar) doesn't narrow the viewport and
+       shift centered content sideways. `overflow-y: scroll` is the bulletproof,
+       universally-supported fix; `scrollbar-gutter: stable` is the modern
+       refinement (reserves the gutter without a permanent track) where supported. */
+    overflow-y: scroll;
+    scrollbar-gutter: stable;
+  }
+  body {
+    @apply bg-canvas text-ink font-sans;
+  }
+  /* Fraunces optical sizing: characterful cuts at display size, clean small. */
+  .font-display {
+    font-optical-sizing: auto;
+  }
+  ::selection {
+    background: rgba(232, 163, 61, 0.28);
+    color: #1a1714;
+  }
+  ::-webkit-scrollbar {
+    width: 11px;
+    height: 11px;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-line;
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-faint;
+    background-clip: content-box;
+  }
+}
+
+/* ── Motion — quiet, functional ─────────────────────────────────────────────── */
+@keyframes ag-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes ag-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes ag-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+/* Live status — a slow, soft pulse ring in pine (running/healthy). */
+@keyframes ag-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(33, 88, 74, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(33, 88, 74, 0);
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .rise {
+    animation: ag-rise 0.34s var(--ease-out) both;
+  }
+  .fade {
+    animation: ag-fade 0.25s ease both;
+  }
+  .live-dot {
+    animation: ag-pulse 2.4s ease-in-out infinite;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@layer components {
+  /* Card / panel — warm surface, hairline border, soft warm lift. */
+  .card {
+    @apply rounded-xl border border-line bg-surface shadow-card;
+  }
+
+  /* Micro-label — the machine-data signature: mono, wide-tracked, caps, faint. */
+  .label {
+    @apply font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-faint;
+  }
+
+  /* Editorial eyebrow — the ONE serif flourish: a small italic Fraunces label in
+     amber above a masthead. The wink that keeps Studio from being a plain sans. */
+  .eyebrow {
+    @apply font-serif text-sm font-medium italic text-amber-deep;
+  }
+
+  /* Shared keyboard focus ring. */
+  .focus-ring {
+    @apply outline-none focus-visible:ring-2 focus-visible:ring-amber/60 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas;
+  }
+
+  /* Primary action — marigold with warm-ink text (the signature). 40px min. */
+  .btn {
+    @apply focus-ring inline-flex min-h-[40px] items-center justify-center gap-2 rounded-lg bg-amber px-4
+      text-sm font-semibold text-ink transition-[background-color,transform] duration-150
+      hover:bg-[#dd952c] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45 disabled:active:scale-100;
+  }
+  .btn-ghost {
+    @apply focus-ring inline-flex min-h-[40px] items-center justify-center gap-2 rounded-lg border border-line
+      bg-surface px-4 text-sm font-medium text-ink transition-[background-color,transform,border-color] duration-150
+      hover:border-ink/25 hover:bg-raised active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45;
+  }
+
+  /* Form controls. */
+  .field {
+    @apply w-full rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm
+      text-ink transition-colors placeholder:text-faint
+      focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/20;
+  }
+
+  /* Chip / tag. */
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-md border border-line bg-fill px-2 py-0.5
+      font-mono text-[11px] font-medium text-muted;
+  }
+
+  /* Markdown inside a trace body. The model writes markdown, so raw asterisks and
+     backticks are noise - but a trace step is a dense, small-type context, so this is
+     deliberately tighter than prose defaults: no huge headings, no big margins, and
+     the first/last child flush so the block doesn't gain phantom padding. */
+  .prose-trace > :first-child {
+    @apply mt-0;
+  }
+  .prose-trace > :last-child {
+    @apply mb-0;
+  }
+  .prose-trace p,
+  .prose-trace ul,
+  .prose-trace ol,
+  .prose-trace pre {
+    @apply my-2;
+  }
+  .prose-trace ul {
+    @apply list-disc pl-5;
+  }
+  .prose-trace ol {
+    @apply list-decimal pl-5;
+  }
+  .prose-trace li {
+    @apply my-0.5;
+  }
+  .prose-trace h1,
+  .prose-trace h2,
+  .prose-trace h3,
+  .prose-trace h4 {
+    @apply mb-1 mt-3 text-xs font-semibold text-ink;
+  }
+  .prose-trace code {
+    @apply rounded border border-line bg-fill px-1 py-0.5 font-mono text-[11px];
+  }
+  .prose-trace pre {
+    @apply overflow-x-auto rounded-md border border-line bg-canvas p-2;
+  }
+  /* A fenced block already has its own frame; don't double-frame the code inside. */
+  .prose-trace pre code {
+    @apply border-0 bg-transparent p-0;
+  }
+  .prose-trace a {
+    @apply text-amber-deep underline underline-offset-2;
+  }
+  .prose-trace blockquote {
+    @apply my-2 border-l-2 border-line pl-3 text-muted;
+  }
+  .prose-trace table {
+    @apply my-2 w-full border-collapse text-[11px];
+  }
+  .prose-trace th,
+  .prose-trace td {
+    @apply border border-line px-2 py-1 text-left;
+  }
+
+  /* Loading skeleton. */
+  .skeleton {
+    @apply relative overflow-hidden rounded-md bg-fill;
+  }
+  .skeleton::after {
+    @apply absolute inset-0;
+    content: "";
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgba(255, 253, 250, 0.7), transparent);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .skeleton::after {
+      animation: ag-shimmer 1.5s infinite;
+    }
+  }
+}

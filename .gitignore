@@ -1,0 +1,23 @@
+node_modules/
+dist/
+apps/web/dist/
+cdk.out/
+infra/cdk.out/
+*.tsbuildinfo
+.env
+.env.local
+.env.*.local
+.DS_Store
+# Local CDK context: holds THIS deployment's webCallbackUrl (the invite email's
+# sign-in link). Deliberately untracked - a checked-in value points every other
+# deployer's invite emails at our app. See infra/cdk.json.
+infra/cdk.context.json
+
+# Design docs + the pre-public checklist: kept LOCAL, deliberately. They describe
+# unbuilt work, prior-project references, and the pre-publication findings - none of
+# which should ship in a public repo. Nothing tracked may link to backlog/ (the link
+# would dangle publicly); docs/ and CLAUDE.md must stay self-contained.
+backlog/
+
+# stray local verification screenshots
+/*.png

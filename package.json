@@ -1,0 +1,30 @@
+{
+  "name": "agency",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Agency - a managed platform for no/low-code creation of agents on AWS Bedrock AgentCore.",
+  "license": "Apache-2.0",
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "infra"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "vitest run",
+    "up": "docker compose up --build",
+    "down": "docker compose down -v",
+    "e2e:local": "tsx scripts/e2e.ts",
+    "mint-token": "tsx scripts/mint-m2m-token.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

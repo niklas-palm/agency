@@ -1,0 +1,31 @@
+{
+  "name": "@agency/control-plane",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Hono API for creating, configuring, invoking, and polling agents. Runs as a Node server locally and on Lambda in prod.",
+  "scripts": {
+    "start": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@agency/shared": "*",
+    "@aws-sdk/client-bedrock-agentcore": "^3.1080.0",
+    "@aws-sdk/client-cognito-identity-provider": "^3.1093.0",
+    "@aws-sdk/client-dynamodb": "^3.1080.0",
+    "@aws-sdk/client-s3": "^3.1095.0",
+    "@aws-sdk/client-scheduler": "^3.1090.0",
+    "@aws-sdk/lib-dynamodb": "^3.1080.0",
+    "@hono/node-server": "^1.19.14",
+    "hono": "^4.12.27",
+    "jose": "^5.10.0",
+    "uuid": "^14.0.1"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.145",
+    "@types/node": "^22.20.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
+  }
+}

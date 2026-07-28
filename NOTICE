@@ -1,0 +1,24 @@
+Agency
+Copyright 2026 Niklas Palm
+
+This product includes software developed as a personal project. It is not an
+official Amazon Web Services or Anthropic product, and is not affiliated with,
+endorsed by, or supported by either company. References to AWS and Anthropic
+services are descriptive.
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+---
+
+Third-party content included in this repository:
+
+- .claude/skills/frontend-guidance/SKILL.md is adapted from Emil Kowalski's
+  design-engineering skill (https://github.com/emilkowalski/skill, MIT licensed)
+  and the philosophy taught at https://animations.dev. Condensed and adapted;
+  attribution retained in the file itself.
+
+Dependencies are declared in package.json / package-lock.json and retain their
+own licenses (predominantly MIT, Apache-2.0 and ISC). No dependency imposes a
+copyleft obligation on this project: the one dual-licensed package in the tree
+(`case`, "MIT OR GPL-3.0-or-later", reached only via aws-cdk-lib at build time)
+is used under its MIT option.

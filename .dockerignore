@@ -1,0 +1,10 @@
+# Keep the Docker build context (repo root) lean. Excludes the CDK output
+# (which lives under infra/cdk.out inside the repo and would otherwise recurse
+# into the image asset), installed deps, build output, and VCS.
+**/node_modules
+**/dist
+infra/cdk.out
+cdk.out
+.git
+apps/web/dist
+*.tsbuildinfo

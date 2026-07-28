@@ -1,0 +1,88 @@
+# Local replica of the platform. The only calls that leave the laptop are Bedrock
+# model invocations (which can't be emulated) - DynamoDB is local, and the
+# control-plane talks to the agent-runtime over HTTP exactly as it will talk to
+# AgentCore in prod (same session-id header, same payload shape). The runtime
+# posts telemetry (trajectory + session summaries) back to the control-plane's
+# /internal ingest API - it never touches DynamoDB directly, mirroring prod where
+# the runtime role has no table access.
+services:
+  dynamodb:
+    image: amazon/dynamodb-local:latest
+    command: ["-jar", "DynamoDBLocal.jar", "-inMemory", "-sharedDb"]
+    ports:
+      - "8000:8000"
+
+  agent-runtime:
+    build:
+      context: .
+      dockerfile: apps/agent-runtime/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      # eu-north-1: the Anthropic model IDs are `eu.` cross-region inference
+      # profiles (see packages/shared models.ts), which only resolve from an EU
+      # region - a us-east-1 Bedrock client would 400 on them. OpenAI/Mantle is
+      # reached separately via MANTLE_REGION (still us-east-1), so no override
+      # needed here for that path.
+      AWS_REGION: eu-north-1
+      # DDB_ENDPOINT is still set so assertLocalCredentials knows it's local dev
+      # (it gates the pasted-creds check); the runtime no longer touches DynamoDB.
+      DDB_ENDPOINT: http://dynamodb:8000
+      WORK_ROOT: /tmp/agency-work
+      # Post telemetry to the control-plane ingest API (no direct DDB). The runtime
+      # holds NO ingest secret - its per-session token arrives in the invoke payload
+      # (the local control-plane mints it with RUNTIME_INGEST_KEY, below).
+      INGEST_URL: http://control-plane:8787
+      # Bedrock model calls use the host shell's AWS credentials, passed through
+      # as env vars (temporary STS creds from the active session).
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+    depends_on:
+      - dynamodb
+      - control-plane
+
+  # A sample downstream API (pet store) to demo + test integrations end-to-end.
+  # The control-plane's integrations proxy forwards to it at http://sample-api:8686;
+  # a registered integration stores SAMPLE_API_TOKEN as its bearer credential, so
+  # the proxy injects it and the agent calls the API without ever seeing the secret.
+  sample-api:
+    build:
+      context: .
+      dockerfile: apps/sample-api/Dockerfile
+    ports:
+      - "8686:8686"
+    environment:
+      PORT: "8686"
+      SAMPLE_API_TOKEN: local-sample-token
+
+  control-plane:
+    build:
+      context: .
+      dockerfile: apps/control-plane/Dockerfile
+    ports:
+      - "8787:8787"
+    environment:
+      MODE: local
+      PORT: "8787"
+      # Matches the prod region; locally it only labels the DynamoDB-Local client
+      # (which hits DDB_ENDPOINT, so the region is cosmetic here).
+      AWS_REGION: eu-north-1
+      DDB_ENDPOINT: http://dynamodb:8000
+      AGENTS_TABLE: agency-agents
+      TRAJECTORY_TABLE: agency-trajectory
+      TOKENS_TABLE: agency-tokens
+      VERSIONS_TABLE: agency-versions
+      SESSIONS_TABLE: agency-sessions
+      SKILLS_TABLE: agency-skills
+      INTEGRATIONS_TABLE: agency-integrations
+      ORGS_TABLE: agency-orgs
+      MEMBERSHIPS_TABLE: agency-memberships
+      INVITES_TABLE: agency-invites
+      LOCAL_RUNTIME_URL: http://agent-runtime:8080
+      PUBLIC_API_URL: http://localhost:8787
+      AUTH_DISABLED: "true"
+      # The runtime authenticates its /internal ingest calls with this key.
+      RUNTIME_INGEST_KEY: local-ingest-key
+    depends_on:
+      - dynamodb

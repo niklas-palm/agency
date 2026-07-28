@@ -1,0 +1,29 @@
+# Typecheck + unit tests on every push and PR.
+#
+# Deliberately does NOT run the E2E: it invokes real Bedrock models, so it needs AWS
+# credentials and costs money per run. CONTRIBUTING.md asks contributors to run
+# `npm run e2e:local` themselves for anything touching the runtime, invoke, or
+# trajectory paths - this workflow proves the parts that can be checked for free.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # `ci`, not `install`: fail if the lockfile and package.json disagree.
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test

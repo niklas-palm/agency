@@ -1,0 +1,22 @@
+{
+  "name": "@agency/sample-api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A tiny sample downstream API (a pet store) to demo Agency integrations end-to-end. Runs as a Node server locally and on Lambda in prod - deliberately separate from the platform so it can be removed cleanly.",
+  "scripts": {
+    "start": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.19.14",
+    "hono": "^4.12.27"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.145",
+    "@types/node": "^22.20.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
+  }
+}
