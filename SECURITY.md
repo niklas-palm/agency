@@ -112,6 +112,26 @@ two as prerequisites, not footnotes.
   the feature, and it is why the setup UI states it plainly rather than burying it: treat an
   allowed channel as equivalent to handing its members the agent's API key. A Slack agent that
   holds powerful integrations belongs in a channel with a membership you control.
+- **Slack loop protection rests on an upstream-supplied field.** A bot's own messages are dropped
+  on `event.bot_id`, which Slack populates on `app_mention` from a bot - so two Agency agents in
+  one channel can't mention each other into a loop. But there is no server-side per-thread turn
+  counter, so that single field is the whole guard.
+- **A crafted session id can name a Slack channel, so the channel allowlist - not the token
+  derivation - is the real containment.** `slack-<channel>-<threadTs>` is deterministic, so a
+  caller holding an agent's API key can invoke with a session id of that shape and mint a
+  capability token naming a channel of their choosing. The normal invoke path does NOT set
+  `fromSlack`, so no Slack tools are wired and the agent has no `slack_reply` to call - reaching
+  the proxy needs the `run_bash` + token-from-`/proc` path already described above. The practical
+  effect is bounded, but it means "the reply target is derived from the token, so there is no
+  parameter to poison" is too strong a claim: what actually contains it is the proxy's re-check
+  that the channel is still on the agent's allowlist. Treat that check as load-bearing.
+- **`IngestFn` can read the agents table.** The Slack proxy runs there (it's the only ingest URL
+  the runtime has) and needs the bot token plus the allowlist, so `IngestFn` holds agents-table
+  READ - which covers every agent's `slackSecrets` and `apiKeyHash`. Combined with the
+  signing-key exposure below, someone who can read that key can forge a token for any agent and
+  reach the Slack proxy; the allowlist still bounds them to channels that agent already allows.
+  This is a real widening of what `IngestFn` could previously touch, stated here rather than
+  left implicit.
 - **The Slack webhook is public, and its only boundary is the HMAC.** Verified over the raw body
   with a 5-minute replay window and a constant-time compare. `url_verification` is necessarily
   exempt (Slack fires it before the app's signing secret exists on our side); the exemption is

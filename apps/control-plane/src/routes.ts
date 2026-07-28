@@ -753,14 +753,11 @@ export function buildRoutes(deps: Deps): Hono<Env> {
   app.use("/agents/:id/runs/:runId", requireAuth);
   // Nested paths need their own line - the /agents/:id prefix does NOT cover them (same reason
   // integrations/:id/refresh needs one). Omitting these left the Slack setup routes reaching
-  // requireScope with no principal: a 500 rather than a 401.
+  // requireScope with no principal: a 500 rather than a 401, and one null-guard away from an
+  // unauthenticated credential write.
   app.use("/agents/:id/slack", requireAuth);
   app.use("/agents/:id/slack/credentials", requireAuth);
   app.use("/agents/:id/slack/channels", requireAuth);
-  // Nested paths need their own line - the /agents/:id prefix does NOT cover them (same reason
-  // integrations/:id/refresh needs one). Omitting these left the Slack setup routes reaching
-  // requireScope with no principal: a 500 rather than a 401, and one null-guard away from an
-  // unauthenticated credential write.
   app.use("/skills", requireAuth);
   app.use("/skills/:id", requireAuth);
   app.use("/integrations", requireAuth);

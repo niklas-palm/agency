@@ -200,7 +200,7 @@ export class ControlPlaneStack extends Stack {
         // issuer so config validation is happy. Management routes aren't meaningfully
         // reachable through its front doors (public HTTP API / private REST both hit
         // the same app, but management needs a JWT the runtime doesn't have, and this
-        // Lambda holds no agents/tokens grants - only /internal/* does anything).
+        // Lambda holds no TOKENS grant, and only READ on agents - only /internal/* works).
         COGNITO_ISSUER: `https://cognito-idp.${REGION}.amazonaws.com/${props.userPool.userPoolId}`,
         API_SCOPE: "agency/api",
       },
@@ -223,11 +223,6 @@ export class ControlPlaneStack extends Stack {
     // session token so the record is never read) would drop the allowlist re-check that lets a
     // revoked channel take effect on a thread that's already running.
     props.agentsTable.grantReadData(ingestFn);
-    // READ ONLY on agents, for the Slack proxy above. This does widen IngestFn's reach: the
-    // agent record carries `slackSecrets` and `apiKeyHash`. Stated deliberately rather than
-    // quietly, as the integrations grant was - the alternative (carrying the reply target in the
-    // session token so the record is never read) would drop the allowlist re-check that lets a
-    // revoked channel take effect on a live thread.
 
     // Public runtime front door: a small public HTTP API fronting IngestFn. (NOT a
     // Lambda Function URL: `authType: NONE` gives the URL an AnyPrincipal `*` invoke
@@ -239,7 +234,7 @@ export class ControlPlaneStack extends Stack {
     // control-plane API already uses.) No IAM auth on the route; the
     // per-session ingest token (verified in-app) is the auth. Only /internal/* is
     // meaningfully reachable (management routes need a JWT the runtime doesn't have,
-    // and IngestFn holds no agents/tokens grants anyway).
+    // and IngestFn holds no tokens grant, and only READ on agents).
     const publicIngestApi = new apigw.HttpApi(this, "PublicIngestApi", {
       defaultIntegration: new HttpLambdaIntegration("PublicIngestIntegration", ingestFn),
     });
