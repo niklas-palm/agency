@@ -194,15 +194,20 @@ jobs:
       # Build the SPA BEFORE deploying, so AgencyWeb ships a real bundle rather than the
       # empty-site fallback. On a first-ever deploy the stacks don't exist yet, so the
       # outputs are empty and this is skipped - deploy once, then re-run to publish the SPA
-      # (see docs/deployment.md, "First deploy is TWO phases"). The gate is the Cognito
-      # client id, not the API URL: with a custom domain configured the API URL is derived
-      # rather than read from a stack, so it's non-empty even before the first deploy - and
-      # a bundle built with no user pool can't sign anyone in.
+      # (see docs/deployment.md, "First deploy is TWO phases").
+      #
+      # The gate needs BOTH ids. The Cognito client id alone isn't enough - a bundle built
+      # with no user pool can't sign anyone in - but neither is the API URL alone, because
+      # with a custom domain it's DERIVED and so non-empty even before the first deploy.
+      # And gating on the client id ALONE self-blocks: if AgencyAuth exists but
+      # AgencyControlPlane doesn't (a partly-failed first deploy, or a deliberate destroy),
+      # the build runs with an empty API URL and dies in assert-bundle with a bare `usage:`
+      # message - BEFORE `cdk deploy` gets to recreate the stack that would fix it.
       - name: Resolve stack outputs
         id: out
         run: bash .github/scripts/stack-outputs.sh
       - name: Build the SPA
-        if: steps.out.outputs.web_client_id != ''
+        if: steps.out.outputs.web_client_id != '' && steps.out.outputs.api_url != ''
         run: |
           cd apps/web
           VITE_API_URL='${{ steps.out.outputs.api_url }}' \
@@ -210,7 +215,7 @@ jobs:
           VITE_COGNITO_CLIENT_ID='${{ steps.out.outputs.web_client_id }}' \
             npx vite build
       - name: Assert the bundle was built against the real API
-        if: steps.out.outputs.web_client_id != ''
+        if: steps.out.outputs.web_client_id != '' && steps.out.outputs.api_url != ''
         run: bash .github/scripts/assert-bundle.sh '${{ steps.out.outputs.api_url }}'
       - name: cdk deploy --all
         working-directory: infra
