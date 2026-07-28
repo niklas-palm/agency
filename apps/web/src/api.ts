@@ -1,7 +1,8 @@
 /**
  * Typed client for the control-plane API.
  *
- * Base URL: `VITE_API_URL` when set (deployed SPA → the API Gateway URL), else
+ * Base URL: `VITE_API_URL` when set (deployed SPA → the deployed API origin: the custom
+ * domain when one is configured, else the API Gateway URL), else
  * the Vite dev `/api` proxy (local). Management calls (agents + access tokens:
  * list/get/create/update/delete) attach the signed-in user's Cognito access
  * token; invoke/poll are authed by the agent's own API key instead.

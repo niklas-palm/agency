@@ -655,22 +655,32 @@ export class ControlPlaneStack extends Stack {
     // domain only accepts a same-region certificate (the mirror image of CloudFront,
     // which only accepts us-east-1 - hence the separate AgencyWebCert stack). Both are
     // DNS-validated in the same hosted zone.
-    const zone = props.domain
-      ? route53.HostedZone.fromHostedZoneAttributes(this, "Zone", {
-          hostedZoneId: props.domain.hostedZoneId,
-          zoneName: props.domain.siteDomain,
-        })
-      : undefined;
-    const apiDomainName =
-      props.domain && zone
-        ? new apigw.DomainName(this, "ApiDomainName", {
-            domainName: props.domain.apiDomain,
-            certificate: new acm.Certificate(this, "ApiCertificate", {
-              domainName: props.domain.apiDomain,
-              validation: acm.CertificateValidation.fromDns(zone),
-            }),
-          })
-        : undefined;
+    let apiDomainName: apigw.DomainName | undefined;
+    if (props.domain) {
+      const zone = route53.HostedZone.fromHostedZoneAttributes(this, "Zone", {
+        hostedZoneId: props.domain.hostedZoneId,
+        zoneName: props.domain.siteDomain,
+      });
+      apiDomainName = new apigw.DomainName(this, "ApiDomainName", {
+        domainName: props.domain.apiDomain,
+        certificate: new acm.Certificate(this, "ApiCertificate", {
+          domainName: props.domain.apiDomain,
+          validation: acm.CertificateValidation.fromDns(zone),
+        }),
+      });
+      // `api` under the site-domain zone. A record only: a regional HTTP API custom
+      // domain is IPv4-only by default, so an AAAA alias would resolve to nothing.
+      new route53.ARecord(this, "ApiAliasA", {
+        zone,
+        recordName: "api",
+        target: route53.RecordTarget.fromAlias(
+          new route53Targets.ApiGatewayv2DomainProperties(
+            apiDomainName.regionalDomainName,
+            apiDomainName.regionalHostedZoneId,
+          ),
+        ),
+      });
+    }
 
     // CORS is handled inside the Hono app (see app.ts), not here: the
     // `ANY /{proxy+}` route below sends OPTIONS preflights to the Lambda, which
@@ -687,21 +697,6 @@ export class ControlPlaneStack extends Stack {
       methods: [apigw.HttpMethod.ANY],
       integration: new HttpLambdaIntegration("Integration", fn),
     });
-
-    if (props.domain && zone && apiDomainName) {
-      // `api` under the site-domain zone. A record only: a regional HTTP API custom
-      // domain is IPv4-only by default, so an AAAA alias would resolve to nothing.
-      new route53.ARecord(this, "ApiAliasA", {
-        zone,
-        recordName: "api",
-        target: route53.RecordTarget.fromAlias(
-          new route53Targets.ApiGatewayv2DomainProperties(
-            apiDomainName.regionalDomainName,
-            apiDomainName.regionalHostedZoneId,
-          ),
-        ),
-      });
-    }
 
     // The origin we ADVERTISE: invoke URLs, the OpenAPI `servers` entry and the coding-agent
     // skill are all built from PUBLIC_API_URL (routes.ts), and the SPA build reads the

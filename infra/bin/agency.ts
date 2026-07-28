@@ -22,7 +22,7 @@ import { WebStack } from "../lib/web-stack.js";
 import { WebCertStack } from "../lib/web-cert-stack.js";
 import { WebSearchStack } from "../lib/web-search-stack.js";
 import { SampleApiStack } from "../lib/sample-api-stack.js";
-import { REGION, WEB_SEARCH_REGION, CLOUDFRONT_CERT_REGION } from "../lib/config.js";
+import { REGION, WEB_SEARCH_REGION } from "../lib/config.js";
 import { resolveDomain } from "../lib/domain.js";
 
 const app = new App();
@@ -65,17 +65,20 @@ new ControlPlaneStack(app, "AgencyControlPlane", {
 // needs a us-east-1 stack of its own (same single-region reason as AgencyWebSearch);
 // AgencyWeb reads its ARN cross-region. The API's certificate is regional and is issued
 // inside AgencyControlPlane instead. Neither exists without a configured domain.
-const webCert = domain
-  ? new WebCertStack(app, "AgencyWebCert", {
-      env: { region: CLOUDFRONT_CERT_REGION },
-      crossRegionReferences: true,
-      domain,
-    })
-  : undefined;
 new WebStack(app, "AgencyWeb", {
   env,
   crossRegionReferences: true,
-  site: domain && webCert ? { domain, certificateArn: webCert.certificateArn } : undefined,
+  site: domain
+    ? {
+        domain,
+        certificateArn: new WebCertStack(app, "AgencyWebCert", {
+          // CloudFront reads ACM certificates only from us-east-1.
+          env: { region: "us-east-1" },
+          crossRegionReferences: true,
+          domain,
+        }).certificateArn,
+      }
+    : undefined,
 });
 
 // A REMOVABLE sample downstream API to integrate against end-to-end (its own stack, so

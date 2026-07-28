@@ -147,11 +147,20 @@ The GitHub OIDC provider (`token.actions.githubusercontent.com`) is account-glob
 **not** managed by this project - it's shared with anything else in the account. Create it once
 per account if it's absent.
 
-### Build inputs come from stack outputs, not repo variables
+### Build inputs come from stack outputs, with one deliberate exception
 
 `.github/scripts/stack-outputs.sh` reads the API URL, Cognito ids, site bucket and distribution
 id from CloudFormation at deploy time. A repo variable would go stale when a stack is recreated
-and produce an SPA silently pointed at the wrong API. `assert-bundle.sh` then greps the built
+and produce an SPA silently pointed at the wrong API.
+
+**The exception is the API URL when a custom domain is configured.** With `AGENCY_DOMAIN_NAME`
+set, the script derives `https://api.<domain>` instead of reading the output - because the host
+is known by construction, and on the deploy that FIRST introduces the domain the deployed output
+still names the execute-api endpoint, so a bundle built from it would be stale the moment that
+deploy landed. The cost of the exception: a typo in that variable publishes a bundle aimed at a
+host that doesn't exist (`smoke.sh` catches it, after the fact), and a UI-only deploy made
+*before* the domain deploy lands would do the same. So set the pair as repo variables in the
+same change that configures the domain. `assert-bundle.sh` then greps the built
 bundle for the API host and refuses one carrying `VITE_AUTH_DISABLED`, because Vite inlines env
 at build time - a missing variable doesn't fail the build, it ships a broken console.
 
@@ -168,8 +177,8 @@ the backend, and the next run publishes the SPA. Same two-phase shape as a manua
 ## Context you must set
 
 CDK context carries the per-deployment values the repo can't ship a default for. Put them in
-`infra/cdk.context.json` (gitignored) or pass `-c key=value`; `infra/cdk.json` holds only a
-`//webCallbackUrl` placeholder documenting the first.
+`infra/cdk.context.json` (gitignored) or pass `-c key=value`; `infra/cdk.json` holds a
+`//`-prefixed placeholder documenting each one.
 
 | Key | Required? | What happens if unset |
 |---|---|---|
@@ -204,6 +213,10 @@ What the deployment does with it:
 - `AgencyWeb` owns the apex **A + AAAA** alias records to CloudFront (dual-stack).
   `AgencyControlPlane` owns the **A** alias for `api.` - a regional HTTP API custom domain is
   IPv4-only, so an AAAA alias there would resolve to nothing.
+- **Use a zone that doesn't already serve those names.** CloudFormation record creation is an
+  UPSERT, so deploying into a zone whose apex already points somewhere (a marketing site, say)
+  silently repoints it - and `cdk destroy AgencyWeb` then deletes the record. Give the platform
+  its own subdomain zone rather than a zone you use for anything else.
 - The `ApiUrl` + `SiteUrl` outputs become the custom hosts, so the SPA build
   (`VITE_API_URL`), the invoke URLs the API advertises (`PUBLIC_API_URL` → `invokeUrl`, the
   OpenAPI `servers` entry, the coding-agent skill) and `smoke.sh` all follow automatically.

@@ -74,7 +74,11 @@ two as prerequisites, not footnotes.
   (`apps/agent-runtime/src/config.ts`) stop a runaway loop at a turn boundary. But nothing
   bounds how many turns are *started*: there is no invoke/poll rate limit and no per-agent
   concurrency cap, so parallel sessions still multiply cost.
-  **Add a usage plan / WAF and budget alarms before exposing this.**
+  **Add a usage plan / WAF and budget alarms before exposing this.** Note this matters more with
+  a custom domain configured: the API is then at `api.<your-domain>` by construction, so a
+  scanner finds it from the domain alone, where a raw `<random-id>.execute-api…` host gave the
+  gap some accidental obscurity. That obscurity was never a control - but it was doing something,
+  and a custom domain removes it.
 - **Agents execute user-authored instructions with a bash tool.** The microVM is the security
   boundary, not the tool-level path checks. Anyone who can create an agent in your deployment
   can run code. Treat "can create an agent" as a privileged capability.
@@ -146,7 +150,8 @@ Not exhaustive, but these are the ones that matter most:
 - [ ] API Gateway usage plan or WAF in front of the control-plane; budget alarms on the account
 - [ ] Review the runtime IAM role and scope model invocation to the models you actually use
 - [ ] Decide who may create agents - that is code execution
-- [ ] Set `webCallbackUrl` (the invite email's sign-in link) and, if you share a region with
+- [ ] Set `webCallbackUrl` (the invite email's sign-in link) - or a custom `domainName`, which
+      supplies it - and, if you share a region with
       another deployment, `cognitoDomainPrefix` - see the README
 - [ ] Tune the per-invocation budget for your models and workload; the defaults are
       generous, and it bounds ONE invocation - a caller who keeps re-invoking gets a fresh

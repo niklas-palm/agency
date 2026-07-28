@@ -42,7 +42,8 @@ apps/agent-runtime   The Strands agent harness that runs inside each AgentCore m
 apps/web             React + Vite SPA.
 apps/sample-api      A tiny pet-store API: a removable demo target for integrations.
 packages/shared      Wire types, the model catalog, the org model. Dependency-free.
-infra                CDK: auth, data, control-plane, web-search, web, sample-api (opt-in).
+infra                CDK: auth, data, control-plane, web-search, web, web-cert (only with a
+                     custom domain), sample-api (opt-in).
 scripts              Table bootstrap, end-to-end tests, token minting.
 docs                 How it actually works. Start with docs/architecture.md.
 ```
@@ -106,17 +107,24 @@ build time, so a missing `VITE_API_URL` produces an SPA pointed at the wrong ori
 **Things a first-time deployer will hit.** These are real and mostly undocumented elsewhere:
 
 - **`cdk bootstrap` is needed in two regions** - `eu-north-1` and `us-east-1` (the web-search
-  gateway stack lives there, because that connector is us-east-1 only).
+  gateway stack lives there because that connector is us-east-1 only - and so does the
+  CloudFront certificate stack, if you configure a custom domain).
 - **Bedrock AgentCore must be available and enabled in your account.** The runtime and the
   web-search gateway are L1 CloudFormation constructs over a young service; region and API
   availability are outside this project's control.
 - **Model ids are pinned** in `packages/shared/src/models.ts` and are account/region
   specific. Expect to edit them. Anthropic ids rotate, and the `eu.`/`us.`/`global.` profile
   prefixes are region-coupled.
-- **Set `webCallbackUrl`.** It is the sign-in link in the Cognito invite email, so an
-  unset value emails your users a `localhost` link. The repo ships no default (that would
-  point at someone else's app); put yours in `infra/cdk.context.json` or pass
-  `-c webCallbackUrl=https://your-app/`. The synth warns if it's missing.
+- **Set `webCallbackUrl` - or a custom domain, which supplies it.** It is the sign-in link in
+  the Cognito invite email, so with neither set your users get a `localhost` link. The repo
+  ships no default (that would point at someone else's app); put yours in
+  `infra/cdk.context.json` or pass `-c webCallbackUrl=https://your-app/`. The synth warns
+  only if BOTH it and `domainName` are missing.
+- **A custom domain is optional.** Set `domainName` + `hostedZoneId` together and the SPA
+  serves on your domain with the API at `api.<domain>`; that also adds the `AgencyWebCert`
+  stack in us-east-1. Leave both unset to serve on the CloudFront and execute-api hostnames.
+  Details, including the delegation prerequisite, in
+  [docs/deployment.md](docs/deployment.md).
 - **The Cognito domain prefix is globally unique per region.** It defaults to
   `agency-auth`, so a second deployment in the same region needs
   `-c cognitoDomainPrefix=your-prefix` or the auth stack fails.
