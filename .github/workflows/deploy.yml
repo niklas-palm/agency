@@ -42,7 +42,11 @@ permissions:
 
 env:
   AWS_REGION: eu-north-1
-  ROLE_ARN: arn:aws:iam::675385716628:role/agency-github-deploy
+  # From a repo VARIABLE, not hardcoded: this repository is public, and an account id in a
+  # tracked file is a live-deployment identifier (see CONTRIBUTING.md). It's also what makes
+  # the workflow reusable by a fork or a second deployment without editing it.
+  # Set it once:  gh variable set AWS_DEPLOY_ROLE_ARN --body arn:aws:iam::<acct>:role/agency-github-deploy
+  ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
 
 jobs:
   # Same gate as CI, re-run here: main can receive a direct push, and deploying code that
@@ -75,6 +79,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # need the previous commit to diff against
+      - name: Check the deploy role is configured
+        # An empty ROLE_ARN surfaces later as an opaque "Could not assume role with OIDC",
+        # which sends you looking at IAM instead of at a missing repo variable.
+        run: |
+          if [ -z "${{ env.ROLE_ARN }}" ]; then
+            echo "::error::repo variable AWS_DEPLOY_ROLE_ARN is not set. Run .github/scripts/setup-oidc-role.sh, then: gh variable set AWS_DEPLOY_ROLE_ARN --body <role-arn>" >&2
+            exit 1
+          fi
       - id: detect
         name: Decide whether this is a UI-only change
         run: |

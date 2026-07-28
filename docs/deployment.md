@@ -130,6 +130,17 @@ renamed or recreated repo gets new ids and can't inherit the old trust.
 
 The policy uses `StringEquals` on the full subject, with **no wildcard operator anywhere**.
 
+Then point the workflow at the role. It reads a **repo variable**, not a hardcoded ARN - this
+repository is public, and an account id in a tracked file is a live-deployment identifier
+(see CONTRIBUTING.md). It also means a fork or a second deployment needs no edit:
+
+```bash
+gh variable set AWS_DEPLOY_ROLE_ARN --body arn:aws:iam::<account>:role/agency-github-deploy
+```
+
+If it's unset the deploy fails early with a clear message, rather than surfacing later as an
+opaque `Could not assume role with OIDC`.
+
 The GitHub OIDC provider (`token.actions.githubusercontent.com`) is account-global and is
 **not** managed by this project - it's shared with anything else in the account. Create it once
 per account if it's absent.

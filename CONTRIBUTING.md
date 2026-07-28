@@ -94,6 +94,31 @@ Write what changed and **why it mattered** - the failure mode, not just the diff
 tense, lowercase subject, no trailing period. The history is meant to be readable as an
 account of the reasoning; `git log` here is documentation.
 
+## This repository is public - what not to commit
+
+A commit message can't be retracted by a later commit; the only remedy is a history rewrite.
+So treat everything you write - code, comments, commit messages, test fixtures - as published.
+Don't include:
+
+- **Anything that isn't yours to publish.** No third-party names, emails, usernames or
+  handles, and no real user data, ids or org names read out of a live system. Describe the
+  behaviour, not the person or the record. (This isn't hypothetical: one commit message
+  containing a colleague's email is why this repo's history was squashed before release.)
+- **Internal or employer-specific references.** No internal tool names, codenames, ticket
+  ids, wiki links or internal hostnames. State the constraint, drop the source.
+- **Live deployment identifiers or credentials.** No AWS account ids, ARNs, API Gateway ids,
+  CloudFront domains, Cognito ids or bucket names in tracked files. Real values live in
+  gitignored config (`infra/cdk.context.json`) or come from stack outputs at deploy time.
+  Fixtures must be obviously synthetic - `agpat_test_token_000000`, `example.com`,
+  `000000000000`.
+- **Speculation about unfixed weaknesses.** Accepted trade-offs belong in
+  [SECURITY.md](SECURITY.md), stated deliberately with their mitigations. A "this is probably
+  exploitable if you…" aside in a commit message is a free tip for an attacker. Found
+  something real? See SECURITY.md - **not** an issue or a PR.
+
+Rule of thumb: *would you be comfortable if this line were quoted back to you publicly, out
+of context?*
+
 ## Code style
 
 TypeScript throughout, strict. No formatter is enforced - match the file you're in. Comments

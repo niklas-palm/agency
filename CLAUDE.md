@@ -210,6 +210,39 @@ states the same rules for human contributors; if you change one, change both.
     diff. Present tense, lowercase subject, no trailing period. `git log` here is
     documentation.
 
+### This repository is PUBLIC
+
+Everything you write here is world-readable the moment it's pushed, and a commit message
+cannot be retracted by a later commit - the only remedy is a history rewrite, which is
+disruptive once others have cloned. So treat every commit, comment, doc and test fixture as
+published. Before committing, check you are not including:
+
+18. **Anything that isn't yours to publish.** No third-party names, email addresses,
+    usernames or Slack handles - not in code, not in a commit message, not in a fixture.
+    Describe the *behaviour* ("a member's row had no cached email") rather than the person or
+    the record you saw it in. Don't quote real user data, ids, or org names read out of a live
+    table. **This is not hypothetical:** a colleague's email address in one commit message is
+    why this repo's history had to be squashed before release.
+19. **Internal or employer-specific references.** No internal tool names, codenames, service
+    names, ticket ids, wiki links, or internal hostnames/domains. If a constraint comes from
+    an internal system, state the constraint and drop the source ("security tooling flags an
+    `authType:NONE` Function URL", not the tool's name).
+20. **Live deployment identifiers and credentials.** Never commit an AWS account id, ARN,
+    API Gateway id, CloudFront domain, Cognito pool/client id, bucket name, or anything
+    credential-shaped. Real values belong in gitignored files (`infra/cdk.context.json`) or
+    stack outputs, resolved at deploy time - never in tracked config, docs or examples.
+    Test fixtures must be *obviously* synthetic: `agpat_test_token_000000`,
+    `example.com`, `000000000000`.
+21. **Speculation about unfixed weaknesses, outside SECURITY.md.** A published weakness
+    inventory is a roadmap for an attacker. Accepted trade-offs go in SECURITY.md,
+    deliberately and with their mitigations; a stray "this is probably exploitable if you
+    …" in a commit message is a free tip. Genuine findings get fixed, or documented there.
+
+A useful test before you commit: *would I be comfortable if this line were quoted back to me
+publicly, out of context?* If not, rewrite it. The local `backlog/` directory is gitignored
+precisely because it holds the material that fails this test - never link to it from a tracked
+file, and never move its content into one.
+
 ## Status
 
 Deployed and verified end-to-end on AWS (eu-north-1), including mid-turn injection on a real
