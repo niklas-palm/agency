@@ -5,6 +5,7 @@
  *   AgencyData  - DynamoDB tables
  *   AgencyControlPlane - runtime image + the shared AgentCore runtime pool (public + isolated) + IAM + API Lambda
  *   AgencyWeb   - the SPA on S3 + CloudFront
+ *   AgencyWebCert - us-east-1 certificate for the SPA's custom domain (only with one configured)
  *   AgencySampleApi - a REMOVABLE sample downstream API to demo integrations end-to-end
  *                     (OPT-IN: only synthesized with `-c sampleApi=true`)
  *
@@ -18,14 +19,20 @@ import { AuthStack } from "../lib/auth-stack.js";
 import { DataStack } from "../lib/data-stack.js";
 import { ControlPlaneStack } from "../lib/control-plane-stack.js";
 import { WebStack } from "../lib/web-stack.js";
+import { WebCertStack } from "../lib/web-cert-stack.js";
 import { WebSearchStack } from "../lib/web-search-stack.js";
 import { SampleApiStack } from "../lib/sample-api-stack.js";
-import { REGION, WEB_SEARCH_REGION } from "../lib/config.js";
+import { REGION, WEB_SEARCH_REGION, CLOUDFRONT_CERT_REGION } from "../lib/config.js";
+import { resolveDomain } from "../lib/domain.js";
 
 const app = new App();
 const env = { region: REGION };
 
-const auth = new AuthStack(app, "AgencyAuth", { env });
+// The optional custom domain (`-c domainName=… -c hostedZoneId=…`). Resolved once here
+// so every stack sees the same answer, and so a half-set pair fails at synth.
+const domain = resolveDomain(app);
+
+const auth = new AuthStack(app, "AgencyAuth", { env, domain });
 const data = new DataStack(app, "AgencyData", { env });
 
 // Web search lives in us-east-1 (the only region with the managed connector);
@@ -51,8 +58,25 @@ new ControlPlaneStack(app, "AgencyControlPlane", {
   userPool: auth.userPool,
   webSearchGatewayUrl: webSearch.gatewayUrl,
   webSearchGatewayArn: webSearch.gatewayArn,
+  domain,
 });
-new WebStack(app, "AgencyWeb", { env });
+
+// CloudFront accepts an ACM certificate only from us-east-1, so the SPA's certificate
+// needs a us-east-1 stack of its own (same single-region reason as AgencyWebSearch);
+// AgencyWeb reads its ARN cross-region. The API's certificate is regional and is issued
+// inside AgencyControlPlane instead. Neither exists without a configured domain.
+const webCert = domain
+  ? new WebCertStack(app, "AgencyWebCert", {
+      env: { region: CLOUDFRONT_CERT_REGION },
+      crossRegionReferences: true,
+      domain,
+    })
+  : undefined;
+new WebStack(app, "AgencyWeb", {
+  env,
+  crossRegionReferences: true,
+  site: domain && webCert ? { domain, certificateArn: webCert.certificateArn } : undefined,
+});
 
 // A REMOVABLE sample downstream API to integrate against end-to-end (its own stack, so
 // deleting it is `cdk destroy AgencySampleApi` - it touches nothing else).

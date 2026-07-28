@@ -19,6 +19,15 @@ export const REGION = "eu-north-1";
  */
 export const WEB_SEARCH_REGION = "us-east-1";
 
+/**
+ * The only region CloudFront reads ACM certificates from, whatever region the rest of
+ * the deployment lives in - so the SPA's custom-domain certificate gets its own stack
+ * there (AgencyWebCert). Pinned separately from WEB_SEARCH_REGION: same value today,
+ * unrelated constraints. (An API Gateway regional custom domain is the mirror image - it
+ * requires a certificate from its OWN region, issued in AgencyControlPlane.)
+ */
+export const CLOUDFRONT_CERT_REGION = "us-east-1";
+
 // Note: table names are NOT pinned here - CDK derives unique physical names (see
 // data-stack.ts) and passes them to consumers via env, so a rename never forces a
 // table replacement.

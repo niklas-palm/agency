@@ -33,6 +33,8 @@ infra                CDK: AgencyAuth (Cognito), AgencyData (DynamoDB),
                      schedule trigger + telemetry/integrations ingest),
                      AgencyWebSearch (a us-east-1 web-search gateway the public runtime
                      reaches cross-region), AgencyWeb (S3 + CloudFront),
+                     AgencyWebCert (the us-east-1 CloudFront certificate - only with a
+                     custom domain configured, see docs/deployment.md),
                      AgencySampleApi (removable demo API - opt-in, `-c sampleApi=true`).
 ```
 

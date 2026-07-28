@@ -48,7 +48,8 @@ login the local API can't issue. Vite loads `.env.development` for `dev` only - 
 ## Unit tests
 
 ```bash
-npm test            # vitest from the repo root (excludes cdk.out staged copies)
+npm test            # vitest from the repo root: apps/*, packages/*, and infra/lib
+                    # (excludes cdk.out staged copies)
 ```
 
 Coverage focuses on the risk-bearing pure logic, extracted from the I/O so it can be

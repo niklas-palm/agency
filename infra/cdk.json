@@ -2,6 +2,8 @@
   "app": "npx tsx bin/agency.ts",
   "context": {
     "@aws-cdk/core:newStyleStackSynthesis": true,
-    "//webCallbackUrl": "REQUIRED for a real deploy: your web app origin. It is the sign-in link in the Cognito invite email, so a wrong value emails your users someone else's app. Set it in infra/cdk.context.json (gitignored) or pass -c webCallbackUrl=https://your-app/ . Unset = localhost, which only makes sense for local dev."
+    "//webCallbackUrl": "REQUIRED for a real deploy unless domainName is set: your web app origin. It is the sign-in link in the Cognito invite email, so a wrong value emails your users someone else's app. Set it in infra/cdk.context.json (gitignored) or pass -c webCallbackUrl=https://your-app/ . Unset = the site domain when domainName is set, else localhost, which only makes sense for local dev.",
+    "//domainName": "OPTIONAL custom domain, e.g. agency.example.com: the SPA is served on it and the API on api.<domainName>. Set it WITH hostedZoneId (both or neither) in infra/cdk.context.json (gitignored) or with -c. Unset = the CloudFront + execute-api hostnames. CI reads the same pair from repo variables - see docs/deployment.md.",
+    "//hostedZoneId": "The PUBLIC Route53 hosted zone for domainName. It must already exist AND be delegated (the parent zone's NS records point at it), because the certificates are DNS-validated in it - an undelegated zone leaves CloudFormation waiting on validation instead of failing fast."
   }
 }
