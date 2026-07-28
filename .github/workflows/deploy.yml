@@ -1,0 +1,188 @@
+# Deploy to AWS on merge to main.
+#
+# Speed comes from doing the LEAST work the change requires. Two paths:
+#
+#   UI-only  (only apps/web changed)  -> build the SPA, `s3 sync` it, invalidate the CDN.
+#                                        No CloudFormation, no Docker build. ~1-2 min.
+#   Full     (anything else changed)  -> `cdk deploy --all`. CDK skips unchanged assets by
+#                                        content hash, so a control-plane-only change still
+#                                        doesn't rebuild the ARM64 runtime image.
+#
+# Why path-based and not asset-hash-based: CDK's asset manifest carries a SOURCE hash while
+# ECR is tagged with the BUILT-IMAGE hash, so "is this image already in ECR?" can't be
+# answered before building. What changed in git can be, cheaply and correctly.
+#
+# Credentials are OIDC-only: GitHub mints a short-lived token per job and STS exchanges it
+# for temporary AWS credentials, so there is no secret in the repo. The role's trust policy
+# pins the `sub` claim to THIS repo and only to main / the prod environment (see
+# docs/deployment.md). This workflow runs on `push` to main exclusively - never
+# `pull_request` - so fork code never holds the deploy identity.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      full:
+        description: "Force a full cdk deploy --all (ignore change detection)"
+        type: boolean
+        default: false
+
+concurrency:
+  # Never two deploys at once: CloudFormation would fail the second, and a UI sync racing a
+  # full deploy could publish a bundle built against the wrong API. Queue instead of cancel -
+  # cancelling mid-deploy can leave a stack UPDATE_IN_PROGRESS.
+  group: deploy-aws
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # required to mint the OIDC token
+
+env:
+  AWS_REGION: eu-north-1
+  ROLE_ARN: arn:aws:iam::675385716628:role/agency-github-deploy
+
+jobs:
+  # Same gate as CI, re-run here: main can receive a direct push, and deploying code that
+  # doesn't typecheck is worse than a slow pipeline.
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  scope:
+    needs: gate
+    runs-on: ubuntu-latest
+    outputs:
+      ui_only: ${{ steps.detect.outputs.ui_only }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need the previous commit to diff against
+      - id: detect
+        name: Decide whether this is a UI-only change
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.full }}" = "true" ]; then
+            echo "forced full deploy"; echo "ui_only=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          BEFORE="${{ github.event.before }}"
+          # A first push, a force-push, or a missing parent: don't guess, deploy everything.
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] \
+             || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            echo "no usable base commit - full deploy"; echo "ui_only=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          git diff --name-only "$BEFORE" "${{ github.sha }}" > /tmp/changed
+          echo "changed files:"; sed 's/^/  /' /tmp/changed
+          # The rule lives in a tested script (deploy-scope.test.sh), not inline here: an
+          # earlier inline version silently classified a mixed web+shared change as UI-only,
+          # which would skip the backend deploy.
+          UI_ONLY=$(bash .github/scripts/deploy-scope.sh < /tmp/changed)
+          echo "→ ui_only=$UI_ONLY"
+          echo "ui_only=$UI_ONLY" >> "$GITHUB_OUTPUT"
+
+  # FAST PATH: build the bundle, sync, invalidate. No CloudFormation.
+  deploy-ui:
+    needs: scope
+    if: needs.scope.outputs.ui_only == 'true'
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Resolve stack outputs
+        id: out
+        # The fast path syncs straight to the bucket, so every output must resolve - an
+        # empty one would mean syncing nowhere or building against the wrong origin.
+        env:
+          REQUIRE_ALL: "1"
+        run: bash .github/scripts/stack-outputs.sh
+      - name: Build the SPA
+        run: |
+          cd apps/web
+          VITE_API_URL='${{ steps.out.outputs.api_url }}' \
+          VITE_COGNITO_USER_POOL_ID='${{ steps.out.outputs.user_pool_id }}' \
+          VITE_COGNITO_CLIENT_ID='${{ steps.out.outputs.web_client_id }}' \
+            npx vite build
+      - name: Assert the bundle was built against the real API
+        # Vite inlines these at build time, so a missing var produces a silently broken SPA
+        # (wrong origin, and auth skipped). Cheaper to catch here than in a user's browser.
+        run: bash .github/scripts/assert-bundle.sh '${{ steps.out.outputs.api_url }}'
+      - name: Sync to S3
+        # --delete removes files the new build dropped (old hashed assets). index.html is
+        # synced LAST with no-cache so a client never gets a new index pointing at assets
+        # that aren't uploaded yet.
+        run: |
+          set -euo pipefail
+          B='${{ steps.out.outputs.site_bucket }}'
+          aws s3 sync apps/web/dist "s3://$B" --delete --exclude index.html \
+            --cache-control 'public,max-age=31536000,immutable'
+          aws s3 cp apps/web/dist/index.html "s3://$B/index.html" \
+            --cache-control 'no-cache,no-store,must-revalidate'
+      - name: Invalidate the CDN
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id '${{ steps.out.outputs.distribution_id }}' \
+            --paths '/*' --query 'Invalidation.Id' --output text
+
+  # FULL PATH: cdk deploy --all. CDK skips unchanged assets by content hash, so this is
+  # still incremental - a control-plane-only change won't rebuild the runtime image.
+  deploy-all:
+    needs: scope
+    if: needs.scope.outputs.ui_only == 'false'
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # The runtime image is linux/arm64 (AgentCore requires it) and the runner is x86.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      # Build the SPA BEFORE deploying, so AgencyWeb ships a real bundle rather than the
+      # empty-site fallback. On a first-ever deploy the stacks don't exist yet, so the
+      # outputs are empty and this is skipped - deploy once, then re-run to publish the SPA
+      # (see docs/deployment.md, "First deploy is TWO phases").
+      - name: Resolve stack outputs
+        id: out
+        run: bash .github/scripts/stack-outputs.sh
+      - name: Build the SPA
+        if: steps.out.outputs.api_url != ''
+        run: |
+          cd apps/web
+          VITE_API_URL='${{ steps.out.outputs.api_url }}' \
+          VITE_COGNITO_USER_POOL_ID='${{ steps.out.outputs.user_pool_id }}' \
+          VITE_COGNITO_CLIENT_ID='${{ steps.out.outputs.web_client_id }}' \
+            npx vite build
+      - name: Assert the bundle was built against the real API
+        if: steps.out.outputs.api_url != ''
+        run: bash .github/scripts/assert-bundle.sh '${{ steps.out.outputs.api_url }}'
+      - name: cdk deploy --all
+        working-directory: infra
+        run: npx cdk deploy --all --require-approval never --concurrency 4
+      - name: Smoke-test the deployment
+        run: bash .github/scripts/smoke.sh

@@ -42,6 +42,10 @@ infra                CDK: AgencyAuth, AgencyData (agents/trajectory/tokens/versi
                      AgencyWebSearch (a us-east-1 web-search gateway reached cross-region),
                      AgencyWeb, AgencySampleApi (opt-in, `-c sampleApi=true`).
 scripts              ensure-tables, e2e, models-e2e, mint-m2m-token.
+.github/             CI (typecheck + tests, no AWS creds) + CD on merge to main via OIDC.
+                     Two deploy paths: UI-only (build + s3 sync + CDN invalidate) vs full
+                     `cdk deploy --all`. The rule is a TESTED script
+                     (.github/scripts/deploy-scope.sh) - see docs/deployment.md.
 docs/                Living documentation - the reference for WHY, and part of every change
                      (standing rules 4-6). Start at docs/architecture.md.
 README.md            The public front door. LICENSE (Apache-2.0) + NOTICE + SECURITY.md +

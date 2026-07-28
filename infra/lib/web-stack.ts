@@ -69,5 +69,10 @@ export class WebStack extends Stack {
     }
 
     new CfnOutput(this, "SiteUrl", { value: `https://${distribution.distributionDomainName}` });
+    // Named outputs so CI can do a UI-only deploy without a CloudFormation run: sync the
+    // new bundle to the bucket and invalidate the distribution directly. See
+    // .github/workflows/deploy.yml.
+    new CfnOutput(this, "SiteBucketName", { value: bucket.bucketName });
+    new CfnOutput(this, "DistributionId", { value: distribution.distributionId });
   }
 }

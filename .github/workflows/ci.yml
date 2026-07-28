@@ -27,3 +27,6 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      # The deploy-scope rule decides whether a backend change gets deployed at all, so its
+      # tests run here too - a wrong answer there is silent.
+      - run: bash .github/scripts/deploy-scope.test.sh

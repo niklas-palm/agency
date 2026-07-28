@@ -49,6 +49,85 @@ cd ../../infra && npx cdk deploy AgencyWeb --require-approval never
 Subsequent deploys are one pass (build the SPA, then `deploy --all`) - see
 [Web + auth deploy sequence](#web--auth-deploy-sequence) below.
 
+## Continuous deployment (GitHub Actions)
+
+Merges to `main` deploy automatically. Two workflows:
+
+- **`.github/workflows/ci.yml`** - on every PR and push: `npm ci`, `typecheck`, `test`, plus
+  the deploy-scope tests. **No AWS credentials.** A PR from a fork runs this and nothing else.
+- **`.github/workflows/deploy.yml`** - on push to `main` only (plus manual dispatch). Runs the
+  same gate, then picks the cheapest path that covers the change.
+
+### Two paths, so a UI tweak doesn't rebuild the world
+
+| Change | Path | What runs |
+|---|---|---|
+| Only `apps/web/src`, `public/`, `index.html` | **fast** | build the SPA → `s3 sync` → CloudFront invalidation. No CloudFormation, no Docker. |
+| Anything else | **full** | `cdk deploy --all`. CDK still skips unchanged assets by content hash, so a control-plane-only change doesn't rebuild the ARM64 runtime image. |
+
+The rule is deliberately conservative - UI-only requires that **every** changed path is web
+source. `packages/shared` is excluded (it feeds the runtime and the Lambdas too), as are
+`apps/web/package.json`, `vite.config.ts` and `tsconfig.json` (build inputs). It lives in
+`.github/scripts/deploy-scope.sh` with tests in `deploy-scope.test.sh`, because an earlier
+inline version silently classified a mixed web+shared change as UI-only - which would have
+skipped a backend deploy with no failure to notice.
+
+On the fast path `index.html` is uploaded **last**, with `no-cache`, while hashed assets get
+`immutable` + a one-year max-age. So a browser can never fetch a new index that references
+assets which aren't uploaded yet.
+
+### Credentials: OIDC, no stored keys
+
+GitHub mints a short-lived OIDC token per job; STS exchanges it for temporary AWS credentials.
+There is no AWS secret in the repository.
+
+The role is **`agency-github-deploy`** (created once by hand - it can't deploy itself, since
+nothing can assume it until it exists). Two properties make it safe on a public repo:
+
+- Its trust policy pins the `sub` claim to **this repository and only `refs/heads/main` or the
+  `prod` environment**, and pins `aud` to `sts.amazonaws.com`. A wildcard `sub` is the classic
+  mistake - it lets any repository on GitHub assume the role. A fork's PR presents
+  `repo:<fork>/…`, which doesn't match.
+- **The deploy job never runs on `pull_request`.** Only a push to `main` deploys.
+
+It holds no deploy permissions directly. It may only `sts:AssumeRole` the four CDK bootstrap
+roles (deploy / file-publishing / image-publishing / lookup), scoped by exact ARN per region -
+that's where the privilege lives, and it's how CDK is designed to be driven from CI. Plus the
+narrow extras the fast path needs: `cloudformation:DescribeStacks`, object access to the site
+bucket, and `cloudfront:CreateInvalidation`. Verified with `iam simulate-principal-policy`:
+`iam:CreateUser`, `dynamodb:DeleteTable` and `s3:DeleteBucket` are all implicitly denied.
+
+Recreating it (a new repo name, a second deployment):
+
+```bash
+aws iam create-role --role-name agency-github-deploy \
+  --assume-role-policy-document file://trust.json     # see the sub/aud conditions above
+aws iam put-role-policy --role-name agency-github-deploy \
+  --policy-name agency-deploy --policy-document file://perms.json
+```
+
+The GitHub OIDC provider (`token.actions.githubusercontent.com`) is account-global and is
+**not** managed by this project - it's shared with anything else in the account. Create it once
+per account if it's absent.
+
+### Build inputs come from stack outputs, not repo variables
+
+`.github/scripts/stack-outputs.sh` reads the API URL, Cognito ids, site bucket and distribution
+id from CloudFormation at deploy time. A repo variable would go stale when a stack is recreated
+and produce an SPA silently pointed at the wrong API. `assert-bundle.sh` then greps the built
+bundle for the API host and refuses one carrying `VITE_AUTH_DISABLED`, because Vite inlines env
+at build time - a missing variable doesn't fail the build, it ships a broken console.
+
+After a full deploy, `smoke.sh` asserts `/health` 200, `/openapi.json` 200, `/agents` **401**
+(auth is on), the SPA serves, and the served bundle references this deployment's API. It does
+**not** run the E2E - that invokes real models and costs money; run it on demand.
+
+### First deploy from CI
+
+The stacks don't exist yet, so the outputs are empty and the SPA build is skipped - CI deploys
+the backend, and the next run publishes the SPA. Same two-phase shape as a manual first deploy
+(above). To force a full deploy at any time: **Actions → Deploy → Run workflow → full**.
+
 ## Context you must set
 
 CDK context carries the per-deployment values the repo can't ship a default for. Put them in

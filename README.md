@@ -147,6 +147,13 @@ build time, so a missing `VITE_API_URL` produces an SPA pointed at the wrong ori
   but the threat model matters: read [SECURITY.md](SECURITY.md), which lists the known
   accepted trade-offs rather than pretending there are none.
 
+## Continuous deployment
+
+Merges to `main` deploy to AWS through GitHub Actions, authenticated by **OIDC** - no AWS keys
+are stored in the repository. A UI-only change takes a fast path (build the SPA, `s3 sync`,
+invalidate the CDN) instead of a full CloudFormation run. PRs run the test gate with no
+credentials at all. See [docs/deployment.md](docs/deployment.md#continuous-deployment-github-actions).
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). The short version: keep the docs current in the same
