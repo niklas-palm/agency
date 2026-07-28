@@ -57,7 +57,14 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
+      # Hermetic, like CI: the gate runs BEFORE any credentials are configured, and the
+      # suite must not need them (see apps/control-plane/src/deps-seam.test.ts).
       - run: npm test
+        env:
+          AWS_EC2_METADATA_DISABLED: "true"
+          AWS_CONFIG_FILE: /dev/null
+          AWS_SHARED_CREDENTIALS_FILE: /dev/null
+      - run: bash .github/scripts/deploy-scope.test.sh
 
   scope:
     needs: gate

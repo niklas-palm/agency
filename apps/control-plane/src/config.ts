@@ -5,9 +5,24 @@
  */
 export const REGION = process.env.AWS_REGION ?? "us-east-1";
 
-/** "local" or "prod". Chooses the provisioner + invoker implementations. */
-export const MODE = (process.env.MODE ?? "local") as "local" | "prod";
-export const IS_LOCAL = MODE === "local";
+/**
+ * The deployment mode. "prod" selects the real AWS implementations; anything else (or
+ * unset) is local. NOT typed as `"local" | "prod"`: the value is whatever the environment
+ * says, and vitest sets `MODE=test` - a cast claiming otherwise is what hid the bug below.
+ */
+export const MODE = process.env.MODE ?? "local";
+/**
+ * True for anything that ISN'T prod - so the local/no-op implementations are the default
+ * and prod has to be asked for explicitly.
+ *
+ * Deliberately `!== "prod"` rather than `=== "local"`. Vitest sets `MODE=test`, which is
+ * neither, so the old equality made `IS_LOCAL` false under test and `buildDeps()` handed
+ * the suite the REAL EventBridge + AgentCore clients. Eight tests then passed only on a
+ * machine that happened to have AWS credentials, and failed on a clean CI runner with
+ * `CredentialsProviderError` → 500. Failing closed to local is also the safer default for
+ * any future MODE value: a typo'd MODE now means "no-op", not "call AWS for real".
+ */
+export const IS_LOCAL = MODE !== "prod";
 
 export const AGENTS_TABLE = process.env.AGENTS_TABLE ?? "agency-agents";
 export const TRAJECTORY_TABLE = process.env.TRAJECTORY_TABLE ?? "agency-trajectory";

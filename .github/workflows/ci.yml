@@ -26,7 +26,15 @@ jobs:
       # `ci`, not `install`: fail if the lockfile and package.json disagree.
       - run: npm ci
       - run: npm run typecheck
+      # No AWS credentials exist here, and that's the point: the suite must be hermetic.
+      # A latent bug once made buildDeps hand tests the REAL AWS clients, so 8 tests passed
+      # only on a machine that happened to have credentials. Disabling the metadata endpoint
+      # too, so a runner with an instance role can't mask the same class of bug.
       - run: npm test
+        env:
+          AWS_EC2_METADATA_DISABLED: "true"
+          AWS_CONFIG_FILE: /dev/null
+          AWS_SHARED_CREDENTIALS_FILE: /dev/null
       # The deploy-scope rule decides whether a backend change gets deployed at all, so its
       # tests run here too - a wrong answer there is silent.
       - run: bash .github/scripts/deploy-scope.test.sh
