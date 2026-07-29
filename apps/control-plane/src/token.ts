@@ -1,7 +1,9 @@
 /**
  * Personal Access Tokens (PATs). A PAT authorizes the management API on behalf
- * of the user who minted it, scoped to a chosen set of permissions. Like agent
- * API keys, we store only a SHA-256 hash and return the plaintext once. There is no
+ * of the user who minted it, scoped to a chosen set of permissions. We store only a SHA-256 hash
+ * and return the plaintext once - unlike an agent API key, which is also stored in plaintext so the
+ * console can prefill it. A PAT reaches the whole management API, so it gets no such exception.
+ * There is no
  * comparison to make timing-safe: the tokens table is KEYED by the hash, so auth is a
  * single GetItem on a value derived from the presented secret. The `agpat_` prefix
  * distinguishes a PAT

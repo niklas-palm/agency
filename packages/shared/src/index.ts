@@ -220,7 +220,7 @@ export interface AgentMetrics {
   lastInvokedAt: string | null;
 }
 
-/** An agent as returned by the control-plane API (never includes the API key). */
+/** An agent as returned by the control-plane API. Carries the API key for a writer - see `apiKey`. */
 export interface Agent {
   id: string;
   /** The org this agent lives in. */
@@ -294,8 +294,9 @@ export type CreateAgentRequest = AgentConfig & {
 export type UpdateAgentRequest = Partial<AgentConfig> & { description?: string; shared?: boolean; managers?: string[] };
 
 /**
- * Response to creating an agent. The API key is returned exactly once, here,
- * and is never retrievable again (only rotatable).
+ * Response to creating an agent. Carries the API key so a client can use it immediately - it is
+ * also stored, and `GET /agents/:id` returns it again to any caller who can write the agent
+ * (see `Agent.apiKey`), so this is not the only chance to read it.
  */
 export interface CreateAgentResponse {
   agent: Agent;

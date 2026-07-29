@@ -8,9 +8,9 @@ import { useState } from "react";
 import { Check, Copy } from "lucide-react";
 
 /**
- * A stand-in for the real key. The plaintext exists only in the create/rotate reply
- * (it is never stored), so every other surface - the Integrate tab included - shows
- * this instead, for the creator as much as anyone. Angle-bracketed so it can't
+ * A stand-in used when we have no key to show - i.e. for a caller who can only VIEW the agent, since
+ * the server omits `apiKey` for them. A writer sees the real key prefilled. Angle-bracketed so it
+ * can't
  * be mistaken for a real credential and pasted as-is - a bare `ag_your_api_key` reads
  * like a key, and the invoke 401 can't tell you which of the id/key was wrong.
  */

@@ -434,9 +434,9 @@ export function BackLink() {
 }
 
 /**
- * A labelled value with a copy button. Used for the things shown exactly once and
- * never retrievable (an agent's API key at create + rotate), so copying has to be
- * effortless.
+ * A labelled value with a copy button, for a credential the user needs to get out of the browser and
+ * into their code - a personal access token (genuinely shown once) or an agent's API key at create
+ * and rotate. Copying has to be effortless either way.
  */
 export function CopyRow({
   icon,

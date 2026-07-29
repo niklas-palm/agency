@@ -805,9 +805,9 @@ export function buildRoutes(deps: Deps): Hono<Env> {
   app.use("/invites/:orgId/accept", requireAuth);
   app.use("/invites/:orgId/decline", requireAuth);
 
-  // Create an agent: persist config (+ version 1 + schedule reconcile), return
-  // the agent + its API key (shown exactly once). No runtime to provision - the
-  // shared runtime is platform-owned; an agent is pure config.
+  // Create an agent: persist config (+ version 1 + schedule reconcile), return the agent + its API
+  // key (which is also stored, and readable again by anyone who can write the agent). No runtime to
+  // provision - the shared runtime is platform-owned; an agent is pure config.
   app.post("/agents", requireScope("write"), async (c) => {
     const raw = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
     const check = parseConfigDetailed(raw, false);
@@ -1047,7 +1047,8 @@ export function buildRoutes(deps: Deps): Hono<Env> {
     return c.json(summary);
   });
 
-  // Rotate the API key. Returns the new plaintext once.
+  // Rotate the API key: mint a new one and invalidate the old. For a key believed compromised -
+  // the current key is stored and readable, so a mislaid one needs no rotation.
   app.post("/agents/:id/rotate-key", requireScope("write"), async (c) => {
     const auth = authorize(c.var.principal, await getAgent(c.req.param("id")), "write", "you can't rotate this agent's key");
     if (!auth.ok) return c.json({ error: auth.error }, auth.status);

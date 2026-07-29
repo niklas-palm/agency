@@ -54,7 +54,9 @@ export function buildOpenApiSpec(serverUrl: string) {
         post: {
           tags: ["Agents"],
           summary: "Create an agent",
-          description: "Returns the agent and its API key. The key is shown exactly once.",
+          description:
+            "Returns the agent and its API key. The key is also stored: GET /agents/{id} returns it " +
+            "again to any caller who can write the agent, and omits it for anyone else.",
           security: [{ accountToken: [] }],
           requestBody: { required: true, content: { "application/json": { schema: ref("AgentConfigInput") } } },
           responses: {

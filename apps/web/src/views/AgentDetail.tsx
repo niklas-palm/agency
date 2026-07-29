@@ -125,9 +125,8 @@ export function AgentDetail({ id }: { id: string }) {
             <h2 className="text-base font-semibold tracking-tight text-ink">Integrate</h2>
             <p className="mt-1 text-xs text-muted">Trigger this agent from your code - the same API the console uses.</p>
           </header>
-          {/* No key to prefill: the plaintext is shown once at create/rotate and never
-              stored, so the snippet carries a placeholder. Rotate to get a fresh one. */}
-          {/* The real key, so the samples are copy-paste runnable without editing. */}
+          {/* The real key, so the samples are copy-paste runnable without editing. Present only
+              for a writer - a viewer gets a placeholder, because the server omits the field. */}
           <CodeSamples invokeUrl={agent.invokeUrl} apiKey={agent.apiKey} />
           {canManage(agent) && <RotateKey agentId={agent.id} />}
         </section>
@@ -137,10 +136,10 @@ export function AgentDetail({ id }: { id: string }) {
 }
 
 /**
- * Mint a fresh agent key. Confirm-gated because it INVALIDATES the current key -
- * every caller using it breaks until they're updated. This is the only recovery for
- * a lost key: the plaintext is shown once and never stored, so there is nothing to
- * look up. Shown to writers only, matching the server's gate.
+ * Mint a fresh agent key. Confirm-gated because it INVALIDATES the current key - every caller
+ * using it breaks until they're updated. Rotation is for a key you believe is COMPROMISED, not for
+ * one you mislaid: the current key is stored and prefilled above for anyone who can write the
+ * agent. Shown to writers only, matching the server's gate.
  */
 function RotateKey({ agentId }: { agentId: string }) {
   const [confirming, setConfirming] = useState(false);
@@ -166,7 +165,7 @@ function RotateKey({ agentId }: { agentId: string }) {
       {fresh ? (
         <div className="space-y-3">
           <p className="text-xs text-muted">
-            Copy it now — it's shown only once. The previous key no longer works.
+            The previous key no longer works — update anything that used it.
           </p>
           <CopyRow icon={<KeyRound className="h-3.5 w-3.5" />} label="New API key" value={fresh} mono />
         </div>
@@ -647,7 +646,7 @@ function Run({ agent }: { agent: Agent }) {
               type={showKey ? "text" : "password"}
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              placeholder="ag_… (shown once at create; rotate to mint a new one)"
+              placeholder="ag_… (your key appears here; you need write access to see it)"
             />
             <button
               type="button"

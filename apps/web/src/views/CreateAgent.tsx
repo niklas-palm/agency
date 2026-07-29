@@ -211,7 +211,7 @@ function Created({ result }: { result: CreateAgentResponse }) {
           {result.agent.config.name} is live
         </h1>
         <p className="mt-2.5 text-sm text-muted">
-          Save the API key now — it's shown only once and can't be retrieved again.
+          Copy the API key to trigger this agent. You can always read it again on the agent's Integrate tab.
         </p>
 
         <div className="mt-6 space-y-4">
