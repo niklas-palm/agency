@@ -97,7 +97,9 @@ each session in its own microVM, so a runtime *process* serves exactly one sessi
 warm Agent keeps conversation state, and a `BeforeModelCallEvent` hook drains the mailbox to
 inject mid-turn messages. Model choice is a one-line entry in `packages/shared`'s MODELS map,
 resolved by `agent-runtime/src/model.ts` (Bedrock for Anthropic, Bedrock Mantle for OpenAI -
-keyless).
+keyless, but it DOES need the `@aws/bedrock-token-generator` runtime dep: Strands declares it an
+optional peer and imports it lazily, so a missing install fails mid-turn rather than at boot -
+see docs/models.md).
 
 ## Organizations (the top ownership hierarchy)
 

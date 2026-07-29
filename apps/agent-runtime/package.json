@@ -12,6 +12,7 @@
     "@agency/shared": "*",
     "@aws-crypto/sha256-js": "^5.2.0",
     "@aws-sdk/credential-provider-node": "^3.972.70",
+    "@aws/bedrock-token-generator": "^1.1.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@smithy/signature-v4": "^5.6.6",
     "@strands-agents/sdk": "^1.10.0",

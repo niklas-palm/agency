@@ -15,6 +15,38 @@ and resolved to a concrete provider by the runtime's model factory
 | `gpt-5.6-sol`  | openai   | `openai.gpt-5.6-sol`                          |
 | `gpt-oss-120b` | openai   | `openai.gpt-oss-120b`                         |
 
+## The OpenAI/Mantle path needs one runtime dependency
+
+`@aws/bedrock-token-generator` is a **direct dependency of `apps/agent-runtime`**, and every
+non-Anthropic model depends on it. Getting this wrong is invisible until a real turn runs, so it's
+worth knowing why it's there.
+
+Strands' `OpenAIModel` + `bedrockMantleConfig` is keyless in the sense that matters - no OpenAI API
+key, AWS credentials only - but it is NOT SigV4-per-request. It builds an async `apiKey` setter
+that mints a **bearer token** before each call, and that minting is what needs the package. Strands
+declares it an **optional peer dependency** (still true in the latest 1.11.2) and imports it
+LAZILY, on first mint, so a missing install throws nothing at boot and fails mid-turn with:
+
+```
+Failed to get token from 'apiKey' function: bedrockMantleConfig requires the
+'@aws/bedrock-token-generator' package
+```
+
+The token is a base64'd SigV4-presigned `bedrock.amazonaws.com/?Action=CallWithBearerToken` URL, so
+it comes from the ordinary credential chain - nothing extra to configure, just installed.
+
+**There is no credential-chain-only alternative on Node.** The OpenAI Node SDK does ship a
+`BedrockOpenAI` provider, but it refuses to construct without `apiKey` or `bedrockTokenProvider`
+("BedrockOpenAI only supports Bedrock bearer token authentication"). The Python SDK's
+`openai[bedrock]` extra, which does do SigV4 from the credential chain, has no Node equivalent
+today - so the token generator is the mechanism, not a workaround.
+
+**Both Mantle model families are verified working** against the live endpoint through the same
+`agent.stream()` path the runtime uses. Their base paths differ and Strands picks between them:
+`openai.gpt-5.*` is served from `/openai/v1`, everything else (e.g. `openai.gpt-oss-120b`) from
+`/v1`. Nothing in this repo needs to know that - but if a new model 404s while a sibling works,
+that split is the first thing to check.
+
 ## The provider seam
 
 `buildModel(modelKey)` is the only place a model provider is chosen:
