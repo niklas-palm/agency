@@ -14,24 +14,46 @@
  */
 
 /**
- * Scopes the bot needs - exactly one per API method we actually call, and no more. A token that
- * can do more than the code does is blast radius the feature never uses.
+ * Scopes the bot needs.
  *
- * `channels:read` + `groups:read` are the non-obvious pair: they're required by
- * `conversations.info`, which validates a channel against the connected workspace at setup. The
- * `*:history` scopes do NOT imply them (Slack's scope hierarchy is explicit about this), so
- * requesting history instead would fail channel validation for every user with `missing_scope`.
- * `groups:read` is also what lets a PRIVATE channel be validated and used.
+ * The rule I applied first - "one scope per API method we call" - was too narrow, because it
+ * described what the code did on day one rather than what a Slack agent has to be able to do. An
+ * agent that can only read the words of one @-mention and post a reply is barely an agent: someone
+ * says "can you fix this?" three messages into a thread and it has no idea what "this" is.
+ *
+ * So the set below is what the FEATURE needs, and each entry names the capability rather than the
+ * call site. Anything genuinely unused is still excluded - a token that can do more than the
+ * product does is blast radius nobody asked for.
  */
 export const SLACK_BOT_SCOPES = [
-  // Receive the @-mentions that invoke the agent.
+  // Be invoked: receive the @-mentions that start a run.
   "app_mentions:read",
-  // Resolve a channel at setup (conversations.info): public, then private.
+
+  // READ THE CONVERSATION. Without this the agent sees only the mention text, so a mention that
+  // refers to what was said above ("fix this", "why did that fail?") is unanswerable. This is the
+  // difference between a bot and a colleague, and it's why `*:history` is here despite no call
+  // site on day one - `slack_read_thread` uses it.
+  "channels:history",
+  "groups:history",
+
+  // Resolve a channel at setup (conversations.info) and list them for the picker
+  // (conversations.list): public, then private.
   "channels:read",
   "groups:read",
-  // Reply in the thread (chat.postMessage) and signal progress (reactions.add).
+
+  // Answer, and signal progress.
   "chat:write",
   "reactions:write",
+
+  // Attach and read files: an agent that produces a diff, a log excerpt or a chart needs somewhere
+  // to put it, and one asked about an uploaded file needs to read it. `files:write` also covers
+  // posting a snippet too long for a message.
+  "files:read",
+  "files:write",
+
+  // Resolve a user id to a name, so the agent can address people and attribute what it read
+  // rather than emitting raw `U0…` ids.
+  "users:read",
 ] as const;
 
 /** Slack caps `display_information.name` at 35 characters. */

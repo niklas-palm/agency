@@ -227,3 +227,27 @@ describe("which channel ids need validating", () => {
   });
 });
 
+/**
+ * `allChannels` was write-once, and the shape of the bug is worth pinning: the route built the new
+ * trigger with `{ ...t, ...(allChannels ? { allChannels: true } : {}) }`, so a `false` spread
+ * NOTHING and the old `true` survived from `...t`. Clicking "restrict to a list" therefore did
+ * nothing visible - while still minting a config version, which is how it was noticed.
+ */
+describe("toggling allChannels off", () => {
+  const existing = { type: "slack" as const, channels: ["C1"], allChannels: true };
+
+  it("the conditional-spread form cannot turn it off (the bug)", () => {
+    const allChannels = false;
+    const broken = { ...existing, channels: ["C1"], ...(allChannels ? { allChannels: true } : {}) };
+    expect(broken.allChannels).toBe(true); // still on - the value survived from ...existing
+  });
+
+  it("setting it explicitly does (the fix)", () => {
+    for (const allChannels of [false, true]) {
+      const fixed = { ...existing, channels: ["C1"], allChannels };
+      expect(fixed.allChannels).toBe(allChannels);
+    }
+  });
+});
+
+

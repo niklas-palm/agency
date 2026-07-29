@@ -21,6 +21,9 @@ const SLACK_API = "https://slack.com/api";
 /** Outer deadline for a Slack call. Slack is normally fast; a hang would hold an agent turn. */
 const SLACK_TIMEOUT_MS = 10_000;
 
+/** Messages returned by `read_thread`. Enough for context; not enough to flood the model. */
+const THREAD_LIMIT = 50;
+
 /** Reactions the agent may set, and what each means. A closed set keeps the protocol legible. */
 export const SLACK_STATUS_EMOJI = {
   working: "hourglass_flowing_sand",
@@ -49,14 +52,21 @@ export function parseSlackSessionId(sessionId: string): { channel: string; threa
 }
 
 export interface SlackCallRequest {
-  action: "reply" | "set_status";
+  action: "reply" | "set_status" | "read_thread";
   /** For `reply`: the message text. */
   text?: string;
   /** For `set_status`: which status reaction to set. */
   status?: SlackStatus;
 }
 
-export type SlackCallResult = { ok: true; ts?: string } | { error: string; hint: string };
+export type SlackCallResult =
+  | {
+      ok: true;
+      ts?: string;
+      messages?: Array<{ user: string; text: string; ts: string }>;
+      truncated?: boolean;
+    }
+  | { error: string; hint: string };
 
 /**
  * Execute a Slack action on behalf of an agent, for the thread its session is bound to.
@@ -100,6 +110,13 @@ export async function callSlack(
       error: "this channel is no longer allowed",
       hint: "The agent's Slack channel allowlist no longer includes this channel.",
     };
+  }
+
+  if (req.action === "read_thread") {
+    // The conversation the agent was called into. Without this it sees only the mention text, so
+    // "can you fix this?" three messages deep is unanswerable - the single biggest difference
+    // between a bot and something worth @-mentioning.
+    return readThread(botToken, target.channel, target.threadTs);
   }
 
   if (req.action === "reply") {
@@ -169,4 +186,40 @@ function hintFor(err: string): string {
   if (err === "already_reacted") return "That reaction is already set - nothing to do.";
   if (err === "ratelimited") return "Slack rate-limited us; wait a moment before retrying.";
   return "See Slack's Web API error codes for this value.";
+}
+
+/**
+ * Read the thread the agent was invoked in, oldest first.
+ *
+ * Capped: a long thread would blow the model's context and the proxy's response budget for no
+ * benefit, and the recent messages are the ones that carry the request. The cap is reported so the
+ * agent can say it only saw part of a conversation rather than answering as if it saw all of it.
+ */
+async function readThread(
+  botToken: string,
+  channel: string,
+  threadTs: string,
+): Promise<SlackCallResult> {
+  const params = new URLSearchParams({ channel, ts: threadTs, limit: String(THREAD_LIMIT) });
+  try {
+    const res = await fetch(`${SLACK_API}/conversations.replies?${params}`, {
+      headers: { authorization: `Bearer ${botToken}` },
+      signal: AbortSignal.timeout(SLACK_TIMEOUT_MS),
+    });
+    const body = (await res.json().catch(() => null)) as
+      | { ok?: boolean; error?: string; messages?: Array<Record<string, unknown>>; has_more?: boolean }
+      | null;
+    if (!body?.ok) {
+      const err = body?.error ?? `http ${res.status}`;
+      return { error: `Slack rejected the read: ${err}`, hint: hintFor(err) };
+    }
+    const messages = (body.messages ?? []).map((m) => ({
+      user: typeof m.user === "string" ? m.user : typeof m.bot_id === "string" ? "bot" : "unknown",
+      text: typeof m.text === "string" ? m.text : "",
+      ts: typeof m.ts === "string" ? m.ts : "",
+    }));
+    return { ok: true, messages, ...(body.has_more ? { truncated: true } : {}) };
+  } catch {
+    return { error: "could not reach Slack", hint: "Transient - try once more." };
+  }
 }

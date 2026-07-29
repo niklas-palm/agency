@@ -146,6 +146,41 @@ describe("callSlack", () => {
     expect(JSON.parse((init as { body: string }).body)).toMatchObject({ thread_ts: THREAD });
   });
 
+  it("reads the thread it was called into, oldest first", async () => {
+    fetchMock.mockResolvedValue({
+      json: async () => ({
+        ok: true,
+        messages: [
+          { user: "U1", text: "the deploy failed", ts: "1.1" },
+          { user: "U2", text: "can you fix this?", ts: "1.2" },
+        ],
+      }),
+      status: 200,
+    });
+    const res = await callSlack("agent-000000", SESSION, { action: "read_thread" });
+    expect(res).toMatchObject({
+      ok: true,
+      messages: [
+        { user: "U1", text: "the deploy failed" },
+        { user: "U2", text: "can you fix this?" },
+      ],
+    });
+    // Scoped to the session's own thread - no channel or ts parameter the agent could supply.
+    const [url] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toContain(`channel=${CHANNEL}`);
+    expect(String(url)).toContain(`ts=${THREAD}`);
+  });
+
+  it("flags a truncated thread rather than implying it saw everything", async () => {
+    fetchMock.mockResolvedValue({
+      json: async () => ({ ok: true, messages: [], has_more: true }),
+      status: 200,
+    });
+    expect(await callSlack("agent-000000", SESSION, { action: "read_thread" })).toMatchObject({
+      truncated: true,
+    });
+  });
+
   it("refuses to act on a non-Slack session", async () => {
     const res = await callSlack("agent-000000", "abcdefghijklmnopqrstuvwxyz0123456", {
       action: "reply",

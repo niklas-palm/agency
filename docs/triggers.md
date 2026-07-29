@@ -90,6 +90,14 @@ The manifest is complete on purpose - scopes, the `app_mention` subscription, an
 own webhook URL are all baked in. A "manifest minus events" approach leaves the user to enable
 things by hand, and when they forget, the app looks installed but never delivers.
 
+### Setup does NOT mint config versions
+
+Connecting Slack, storing credentials, picking channels and toggling the allowlist all write the
+trigger directly rather than through `applyNewVersion`. Version history answers "what did this
+agent do differently?" - a prompt, a model, a skill - and connection plumbing is none of those.
+Routing it through the version path meant a freshly-created agent read as **version 8** before it
+had ever run, burying the history that makes the Versions tab worth opening.
+
 ### Setup states
 
 Derived from the trigger + whether the secrets exist, never stored - so it can't go stale, and
@@ -149,6 +157,12 @@ integrations were resolved. Both POST to `/internal/slack/call` with the per-ses
 capability token, and the control-plane derives the target channel + thread from that token's
 `sessionId`. So there is no channel parameter for a prompt-injected agent to aim elsewhere,
 and a compromised microVM has no Slack credential to steal.
+
+**The agent can read the thread it was called into** (`slack_read_thread` → the proxy's
+`conversations.replies`, capped at 50 messages and flagged when truncated). This is what makes it
+useful rather than literal: an invoke carries only the mention's own text, so without it the agent
+is guessing at what "this" refers to. The prompt tells the model to call it first whenever the
+mention references something it can't see.
 
 Status reactions map the run's lifecycle: ⏳ working → ✅ done / ❌ failed / ❓ needs input. They
 target the message that **invoked** the agent, which is not the same as the session key: for a
@@ -216,10 +230,18 @@ channel be validated at setup. **The bot must be `/invite`d to any channel, publ
 Slack only delivers `app_mention` to an app that's in the conversation, so a channel it hasn't
 joined validates green, reports live, and drops every mention.
 
-The scope set is one scope per method we call, and the non-obvious pair is `channels:read` +
-`groups:read` - required by `conversations.info`. Slack's scope hierarchy does NOT let
-`channels:history` imply `channels:read`, so an earlier version of this manifest would have failed
-channel validation for every user with `missing_scope`.
+The scope set describes what the FEATURE needs, not what the code calls today. An earlier version
+applied "one scope per call site" and produced an agent that could read a single mention and post a
+reply - barely an agent, since a mention three messages into a thread ("can you fix this?") was
+unanswerable. So `*:history` is requested for `slack_read_thread`, `files:*` so an agent can attach
+a diff or read an upload, and `users:read` so it can name people instead of emitting raw `U0…` ids.
+
+The non-obvious pair is still `channels:read` + `groups:read`, required by `conversations.info` and
+`conversations.list`: Slack's hierarchy does NOT let `channels:history` imply `channels:read`.
+
+What's deliberately excluded, so the token can't do more than the product: `chat:write.customize`,
+`channels:manage`, `channels:join` (the user invites the bot; we never self-join), `im:history` (we
+subscribe only `app_mention`), and anything `admin`.
 
 ## Adding a managed trigger later (GitHub, …)
 

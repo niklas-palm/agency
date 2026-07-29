@@ -64,7 +64,18 @@ export function buildSlackTools(fromSlack: boolean) {
     callback: async ({ status }) => call({ action: "set_status", status }),
   });
 
-  return [reply, setStatus];
+  const readThread = tool({
+    name: "slack_read_thread",
+    description:
+      "Read the Slack thread you were mentioned in, oldest message first. Call this FIRST whenever " +
+      "the mention refers to something you can't see - 'fix this', 'why did that fail', 'as " +
+      "discussed above'. You are given only the text of the mention itself, so without this you " +
+      "are guessing at what the conversation was about.",
+    inputSchema: z.object({}),
+    callback: async () => call({ action: "read_thread" }),
+  });
+
+  return [reply, setStatus, readThread];
 }
 
 /**
@@ -81,5 +92,8 @@ export const SLACK_PROMPT = [
   "  'done' or 'failed' at the end. Prefer a status reaction over chatty progress messages.",
   "- Slack formatting is mrkdwn, not Markdown: *bold*, _italic_, `code`, ```blocks```.",
   "  Links are <https://example.com|label>.",
+  "- You are given ONLY the text of the mention. If it refers to anything you can't see -",
+  "  \"this\", \"that error\", \"as discussed\" - call `slack_read_thread` before answering rather",
+  "  than guessing. It returns the thread oldest-first.",
   "- Be brief. A Slack thread is a conversation, not a report.",
 ].join("\n");

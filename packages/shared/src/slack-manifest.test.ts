@@ -1,3 +1,35 @@
+  /**
+   * The scope set should describe what the FEATURE needs, not what the code happened to call on
+   * day one - my first version was one-scope-per-call-site, which left an agent that could read a
+   * single mention and nothing else. But it still shouldn't request capabilities the product has
+   * no path to using, so this pins the ones we deliberately leave out.
+   */
+  it("requests the read scopes conversations.info/list need", () => {
+    const scopes: string[] = (slackManifest(input) as Record<string, any>).oauth_config.scopes.bot;
+    expect(scopes).toContain("channels:read");
+    expect(scopes).toContain("groups:read");
+  });
+
+  it("requests history, so the agent can read the thread it was called into", () => {
+    const scopes: string[] = (slackManifest(input) as Record<string, any>).oauth_config.scopes.bot;
+    // Without these the agent sees only the mention text, and "fix this" is unanswerable.
+    expect(scopes).toContain("channels:history");
+    expect(scopes).toContain("groups:history");
+  });
+
+  it("leaves out the capabilities the product has no path to", () => {
+    const scopes: string[] = (slackManifest(input) as Record<string, any>).oauth_config.scopes.bot;
+    for (const unused of [
+      "chat:write.customize", // no custom username/icon per message
+      "channels:manage", // never creates or archives a channel
+      "channels:join", // the user invites the bot; we never self-join
+      "im:history", // app_mention only; DMs aren't subscribed
+      "admin", // never
+    ]) {
+      expect(scopes, `${unused} has no path in the product`).not.toContain(unused);
+    }
+  });
+
 import { describe, expect, it } from "vitest";
 import {
   SLACK_BOT_SCOPES,
@@ -139,14 +171,6 @@ describe("slackManifest", () => {
   });
 
   /** A token that can do more than the code does is blast radius the feature never uses. */
-  it("requests nothing it has no call site for", () => {
-    const scopes: string[] = (slackManifest(input) as Record<string, any>).oauth_config.scopes.bot;
-    // We call exactly four methods: auth.test, conversations.info, chat.postMessage, reactions.add.
-    for (const unused of ["files:read", "files:write", "channels:history", "groups:history", "users:read"]) {
-      expect(scopes, `${unused} has no call site`).not.toContain(unused);
-    }
-  });
-
   it("names the app as written but the bot handle sanitized", () => {
     const m = slackManifest({ ...input, agentName: "Deploy Bot" }) as Record<string, any>;
     // The app name keeps the user's capitalisation and spaces - Slack allows both here.

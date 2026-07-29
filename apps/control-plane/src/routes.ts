@@ -71,7 +71,7 @@ import {
   slackChannelList,
   withSlackVerification,
 } from "./slack-setup.js";
-import { slackManifest, slackNameProblem, slackRequestUrl, SLACK_BOT_SCOPES, slackOf } from "@agency/shared";
+import { slackManifest, slackNameProblem, slackRequestUrl, SLACK_BOT_SCOPES, slackOf, type SlackTrigger } from "@agency/shared";
 import { generateApiKey, verifyApiKey } from "./apikey.js";
 import { generateAccessToken } from "./token.js";
 import {
@@ -454,6 +454,30 @@ async function resolveOperations(
  * payload to the shared runtime - there is nothing to re-provision (the runtime
  * image + env are platform-owned, updated on deploy, not per agent).
  */
+/**
+ * Update the Slack trigger WITHOUT minting a config version.
+ *
+ * Version history exists to answer "what did this agent do differently, and when?" - a prompt
+ * change, a model change, a new skill. Connecting Slack, verifying a token, picking channels and
+ * toggling the allowlist are none of those: they're plumbing for how the agent is reached, and the
+ * agent behaves identically either way. Routing them through `applyNewVersion` meant a
+ * freshly-created agent showed as **version 8** before it had ever run, drowning the history that
+ * makes the Versions tab useful.
+ *
+ * A plain conditional write, guarded on the version we read, so a concurrent config PATCH can't be
+ * clobbered by a slow Slack round trip.
+ */
+async function updateSlackTrigger(
+  record: AgentRecord,
+  patch: Partial<SlackTrigger>,
+): Promise<void> {
+  const triggers = record.config.triggers.map((t) => (t.type === "slack" ? { ...t, ...patch } : t));
+  await updateAgent(record.id, {
+    config: { ...record.config, triggers },
+    expectedVersion: record.version,
+  });
+}
+
 async function applyNewVersion(
   deps: Deps,
   record: AgentRecord,
@@ -700,8 +724,8 @@ export function buildRoutes(deps: Deps): Hono<Env> {
     }) | null;
     const claims = verifySessionToken(tokenOf(c));
     if (!claims) return c.json({ error: "invalid ingest token" }, 401);
-    if (body?.action !== "reply" && body?.action !== "set_status") {
-      return c.json({ error: "action must be reply or set_status" }, 400);
+    if (body?.action !== "reply" && body?.action !== "set_status" && body?.action !== "read_thread") {
+      return c.json({ error: "action must be reply, set_status or read_thread" }, 400);
     }
     // agentId + sessionId come from the VERIFIED token, never the body - so the call cannot be
     // aimed at another agent or another thread.
@@ -1983,7 +2007,8 @@ export function buildRoutes(deps: Deps): Hono<Env> {
     // a full config copy that a reader can fetch. Store them on the record; bump the version
     // for the TRIGGER change through the shared path, so connecting Slack shows in history.
     await updateAgent(record.id, { slackSecrets: { botToken, signingSecret } });
-    await applyNewVersion(deps, record, { ...record.config, triggers }, "connected Slack");
+    // Connection details, not behaviour - no version bump (see updateSlackTrigger).
+    await updateSlackTrigger(record, withSlackVerification(trigger, verified));
     return c.json({
       teamId: verified.teamId,
       teamName: verified.teamName,
@@ -2050,10 +2075,10 @@ export function buildRoutes(deps: Deps): Hono<Env> {
       }
     }
 
-    const triggers = record.config.triggers.map((t) =>
-      t.type === "slack" ? { ...t, channels: ids, ...(allChannels ? { allChannels: true } : {}) } : t,
-    );
-    await applyNewVersion(deps, record, { ...record.config, triggers }, "set Slack channels");
+    // Set `allChannels` EXPLICITLY: a conditional spread (`...(x ? {k:true} : {})`) leaves the old
+    // value in place when x is false, so the flag could only ever be turned ON - clicking
+    // "restrict to a list" appeared to do nothing while still minting a version.
+    await updateSlackTrigger(record, { channels: ids, allChannels });
     return c.json({ channels: ids, allChannels });
   });
 
@@ -2077,10 +2102,15 @@ export function buildRoutes(deps: Deps): Hono<Env> {
     // Secrets first: if the version bump then fails, we've left no usable credential behind -
     // the safer order, since the trigger without secrets is just an unconfigured trigger.
     await updateAgent(record.id, { slackSecrets: null });
+    // Replace the trigger wholesale rather than patching, so every field the old app taught us is
+    // gone - a patch would leave appId/teamId/scopes behind.
     const triggers = record.config.triggers.map((t) =>
       t.type === "slack" ? { type: "slack" as const, channels: [] } : t,
     );
-    await applyNewVersion(deps, record, { ...record.config, triggers }, "disconnected Slack");
+    await updateAgent(record.id, {
+      config: { ...record.config, triggers },
+      expectedVersion: record.version,
+    });
     return c.body(null, 204);
   });
 
