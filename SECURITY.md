@@ -50,12 +50,14 @@ Stated plainly so you can check them, and so a regression is recognizable:
    at invoke.
 3. **The runtime's AWS role is Bedrock-only.** It has no DynamoDB access at all. An agent that
    steals its role credentials via instance metadata can invoke models and touch no table.
-4. **Credentials are hashed at rest** (agent API keys, personal access tokens), so a read of
-   those columns never yields a usable credential. An agent key is compared with
-   `timingSafeEqual`; a PAT isn't compared at all - authentication is a single lookup keyed by
-   the hash of the presented token, which has no comparison to leak timing from. Note the
-   scope: integration secrets and `config.env` values are **not** hashed (they have to be
-   replayed downstream) - see the trade-offs below.
+4. **Authentication never compares a plaintext credential.** A personal access token is not
+   compared at all - authentication is a single lookup keyed by the hash of the presented
+   token, so there is no comparison to leak timing from. An agent API key is compared with
+   `timingSafeEqual` against its stored SHA-256. Note the scope carefully, because "hashed at
+   rest" is **not** a property this project holds across the board: agent API keys are
+   additionally stored in plaintext so the console can prefill them, and integration secrets
+   plus `config.env` values are plaintext because they have to be replayed downstream. Only a
+   PAT is hash-only. All three are in the trade-offs below.
 5. **Tenant-supplied outbound URLs go through one SSRF anchor.** Literal private, loopback,
    link-local, CGNAT and metadata addresses are refused - including every IPv6 spelling that
    embeds an IPv4 address. Redirects are re-validated per hop and credential headers are
