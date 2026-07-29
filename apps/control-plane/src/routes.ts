@@ -712,11 +712,11 @@ export function buildRoutes(deps: Deps): Hono<Env> {
    * `sessionId`, NOT from the body: there is no channel parameter for a prompt-injected agent
    * to aim elsewhere.
    */
+  // Unlike the other /internal routes this does NOT use authIngest, which cross-checks body ids
+  // against the token: there are no ids in the body to check. Every identifier comes from the
+  // verified token, so there is nothing here an agent could aim at another agent or thread.
   app.post("/internal/slack/call", async (c) => {
-    const body = (await c.req.json().catch(() => null)) as (Partial<SlackCallRequest> & {
-      agentId?: string;
-      sessionId?: string;
-    }) | null;
+    const body = (await c.req.json().catch(() => null)) as Partial<SlackCallRequest> | null;
     const claims = verifySessionToken(tokenOf(c));
     if (!claims) return c.json({ error: "invalid ingest token" }, 401);
     const SLACK_ACTIONS = ["reply", "set_status", "read_thread", "ask_user", "upload_file", "download_file"];

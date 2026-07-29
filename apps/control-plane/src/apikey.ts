@@ -1,7 +1,13 @@
 /**
- * Per-agent API keys. A key authorizes invoking exactly one agent. We store only
- * a SHA-256 hash (never the plaintext), return the plaintext exactly once at
- * create/rotate time, and compare with a timing-safe equal on invoke.
+ * Per-agent API keys. A key authorizes invoking exactly one agent, and nothing else - it cannot
+ * read config, list agents, or reach another agent.
+ *
+ * The stored hash is what invoke VERIFIES against, with a timing-safe compare. The plaintext is
+ * ALSO stored on the agent record, deliberately: the Run and Integrate tabs prefill it, which has
+ * to survive a sign-out and a cleared cache, and no client-side store can do that. So the hash here
+ * is not a secrecy boundary against someone who can already read the record - it is only what stops
+ * a *presented* key being compared in variable time. Who may read the plaintext back is decided by
+ * `canWrite` on the agent (see Agent.apiKey + docs/auth.md); a viewer never sees it.
  */
 import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
 
