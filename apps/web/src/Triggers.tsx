@@ -25,6 +25,7 @@ export function TriggersEditor({
   onScheduleChange,
   slackEnabled = false,
   onSlackToggle,
+  savedSlack = false,
   agentId,
   canWrite = true,
 }: {
@@ -34,6 +35,8 @@ export function TriggersEditor({
   /** Whether the agent has a Slack trigger. */
   slackEnabled?: boolean;
   onSlackToggle?: (on: boolean) => void;
+  /** True when the SAVED config has a Slack trigger, so the setup panel has something to read. */
+  savedSlack?: boolean;
   /**
    * The agent's id. Absent while CREATING - Slack setup needs a saved agent, because the
    * manifest embeds the agent's own webhook URL.
@@ -50,6 +53,7 @@ export function TriggersEditor({
         onToggle={onSlackToggle}
         agentId={agentId}
         canWrite={canWrite}
+        savedSlack={savedSlack}
       />
       <ComingSoonCard icon={<Github className="h-4 w-4" />} name="GitHub" desc="Trigger on issues, PRs, or pushes." />
     </div>
@@ -65,11 +69,14 @@ function SlackCard({
   onToggle,
   agentId,
   canWrite,
+  savedSlack,
 }: {
   enabled: boolean;
   onToggle?: (on: boolean) => void;
   agentId?: string;
   canWrite: boolean;
+  /** Whether the trigger exists ON THE SERVER - distinct from the toggle's unsaved local state. */
+  savedSlack?: boolean;
 }) {
   return (
     <TriggerCard
@@ -85,12 +92,15 @@ function SlackCard({
       }
     >
       {enabled &&
-        (agentId ? (
+        (agentId && savedSlack ? (
           <SlackSetup agentId={agentId} canWrite={canWrite} />
         ) : (
           <p className="text-xs text-muted">
-            Save the agent to get its setup steps - the Slack app manifest has to name this
-            agent's own webhook URL.
+            {agentId
+              ? // The toggle is local state until saved, so the setup panel would ask the server
+                // for a trigger that isn't there yet and get a bare 404. Wait for the save.
+                "Save the agent to start the setup - the manifest names this agent's own webhook URL, so the trigger has to exist server-side first."
+              : "Save the agent to get its setup steps - the Slack app manifest has to name this agent's own webhook URL."}
           </p>
         ))}
     </TriggerCard>

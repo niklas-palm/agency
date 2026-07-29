@@ -125,12 +125,25 @@ export function SlackSetup({ agentId, canWrite }: { agentId: string; canWrite: b
     );
   }
   if (error || !setup) {
+    // Say what to DO, not just what the server returned. A raw `404: {"error":…}` reads as a bug
+    // in the product even when it's an ordinary state - and two of these aren't retryable, so
+    // offering "Try again" for them is actively misleading.
+    const status = /^(\d{3})/.exec(error ?? "")?.[1];
+    const message =
+      status === "404"
+        ? "This agent has no saved Slack trigger yet. Enable Slack and save the agent, then come back."
+        : status === "403"
+          ? "You need write access to this agent to set up Slack."
+          : (error ?? "No Slack setup available.");
+    const retryable = status !== "404" && status !== "403";
     return (
       <div className="rounded-lg border border-line bg-surface p-4">
-        <p className="text-xs text-danger">{error ?? "No Slack setup available."}</p>
-        <button className="btn btn-ghost mt-3" onClick={() => void load()}>
-          <RefreshCw className="h-3.5 w-3.5" /> Try again
-        </button>
+        <p className="text-xs text-danger">{message}</p>
+        {retryable && (
+          <button className="btn btn-ghost mt-3" type="button" onClick={() => void load()}>
+            <RefreshCw className="h-3.5 w-3.5" /> Try again
+          </button>
+        )}
       </div>
     );
   }

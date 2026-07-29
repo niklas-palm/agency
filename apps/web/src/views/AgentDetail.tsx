@@ -456,6 +456,7 @@ function ConfigEditor({ agent, onSaved, canWrite }: { agent: Agent; onSaved: (a:
           schedule={schedule}
           onScheduleChange={setSchedule}
           slackEnabled={slackEnabled}
+          savedSlack={Boolean(existingSlack)}
           onSlackToggle={setSlackEnabled}
           agentId={agent.id}
           canWrite={canWrite}
