@@ -217,6 +217,12 @@ jobs:
       - name: Assert the bundle was built against the real API
         if: steps.out.outputs.web_client_id != '' && steps.out.outputs.api_url != ''
         run: bash .github/scripts/assert-bundle.sh '${{ steps.out.outputs.api_url }}'
+      # Refuse a deploy that would tear down a live custom domain. The values aren't tracked
+      # (they're this deployment's identity, and a fork inheriting them would hang on cert
+      # validation), so an unset variable is silence rather than intent - and only the deployed
+      # state can tell the two apart.
+      - name: Assert the domain config matches what's deployed
+        run: bash .github/scripts/assert-domain-context.sh
       - name: cdk deploy --all
         working-directory: infra
         # The domain context is passed only when configured, so an unset variable deploys

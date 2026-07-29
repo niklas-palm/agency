@@ -225,6 +225,30 @@ What the deployment does with it:
 - The Cognito invite email's sign-in link defaults to `https://<domainName>/`, so
   `webCallbackUrl` becomes unnecessary (set it only to override).
 
+**The repo variables are the single source of truth.** The pair can't be tracked in git - it's
+this deployment's identity, and a fork that inherited it would request an ACM certificate for a
+domain it doesn't control and then hang on DNS validation for hours. But it also can't live in two
+independent places, because CDK reads only the local context file. So:
+
+```bash
+gh variable set AGENCY_DOMAIN_NAME    --body your.domain
+gh variable set AGENCY_HOSTED_ZONE_ID --body <its hosted zone id>
+bash .github/scripts/sync-domain-context.sh   # pulls them into infra/cdk.context.json
+```
+
+CI reads the variables directly and needs no local state. `sync-domain-context.sh` is how a
+developer machine gets them, and it merges rather than overwrites (the same file holds `sampleApi`
+and other local context). It also drops a stale `webCallbackUrl`, which takes PRECEDENCE over the
+domain-derived value - so leaving one behind quietly keeps emailing invite links to the old origin.
+
+**And the deploy refuses to remove a domain by accident.**
+`.github/scripts/assert-domain-context.sh` compares the configured domain against the deployed
+`ApiUrl` output and fails the run if this deploy would delete or change a live one. `resolveDomain`
+already rejects a HALF-set pair at synth; it structurally cannot catch BOTH-unset, because that's
+a legitimate configuration (it's how a fork deploys) - only the deployed state distinguishes
+"serving no domain" from "about to delete one". Pass `ALLOW_DOMAIN_REMOVAL=1` to retire a domain
+deliberately.
+
 **CI needs the same pair as repo variables**, because CDK context is not tracked - a deploy from
 CI without them would remove the domain a local deploy had configured:
 
