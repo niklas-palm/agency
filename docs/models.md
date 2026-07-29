@@ -51,7 +51,9 @@ that split is the first thing to check.
 
 `buildModel(modelKey)` is the only place a model provider is chosen:
 
-- **Anthropic** → `BedrockModel` (Converse API, prompt caching on via `cacheConfig: auto`).
+- **Anthropic** → `BedrockModel` (Converse API, prompt caching on via `cacheConfig: auto` -
+  a bare `cachePoint`, so writes land in the **5-minute** cache, which is the multiplier
+  `MODEL_PRICING` assumes; the 1h TTL would cost 2x and nothing asks for it).
 - **OpenAI** → `OpenAIModel` with `bedrockMantleConfig: { region }`. This routes the OpenAI
   client through Bedrock's **OpenAI-compatible "Mantle" endpoint** - **keyless**: the
   bearer token is minted from AWS credentials via `@aws/bedrock-token-generator`. No OpenAI
@@ -82,3 +84,21 @@ data-plane action isn't visible in CloudTrail to prune it confidently).
 - Adding a model is a one-line entry in the `MODELS` map - the provider seam is identical.
   (Anthropic ids take the `eu.` profile prefix; re-prefix if the platform region changes, or
   use the region-agnostic `global.` profiles.)
+
+## Pricing lives next to the catalog
+
+`MODEL_PRICING` (same file as `MODELS`) turns recorded tokens into the dollar figure on the
+Monitor tab. Two things about it are easy to get wrong and worth stating here, next to the
+model ids they depend on:
+
+- **Bedrock has two price tiers for the same Anthropic model.** A `global.` inference profile
+  is the base rate; a geo-pinned (`eu.`/`us.`) or in-region one is **1.1x** it. Since the ids
+  above use `eu.` profiles, the map carries geo-tier rates. Re-prefixing the ids to `global.`
+  would make every Anthropic cost figure 10% too high until the map follows.
+- **AWS publishes no Mantle rate for the gpt-5.6 family**, so those rows are priced from
+  OpenAI's own standard short-context list; only `gpt-oss-*` has a published Bedrock rate
+  (identical in eu-north-1 and us-east-1).
+
+How the token counts themselves are reported - the two providers use opposite prompt-cache
+conventions, and the read side does not currently reconcile them (issue #6) - is in
+docs/metrics.md.

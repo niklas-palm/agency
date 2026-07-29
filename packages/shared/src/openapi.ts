@@ -1326,7 +1326,10 @@ function buildSchemas() {
 
   TokenUsage: {
     type: "object",
-    description: "Token usage counters - the four LLM billing drivers.",
+    description:
+      "Token usage counters - the four LLM billing drivers, summed and priced as if " +
+      "disjoint. An OpenAI model's cache reads are also counted inside inputTokens by " +
+      "the provider, so those rows over-report; see the repo's issue #6.",
     properties: {
       inputTokens: { type: "integer" },
       outputTokens: { type: "integer" },
@@ -1351,7 +1354,12 @@ function buildSchemas() {
       toolUses: { type: "integer" },
       outcome: { type: "string", enum: ["ok", "error"] },
       totalTokens: { type: "integer", description: "The four token drivers summed." },
-      costUsd: { type: "number", description: "Priced at this run's own model's rate." },
+      costUsd: {
+        type: "number",
+        description:
+          "Priced at this run's own model's rate, at read time - so a rate correction " +
+          "re-prices past runs.",
+      },
     },
     required: [
       "runId", "sessionId", "version", "startedAt", "endedAt", "durationMs",

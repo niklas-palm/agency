@@ -86,7 +86,9 @@ one row per (agentId, runId). Token usage comes from the Strands Agent's own acc
 **cumulative** across the session (the Meter is never reset), so the accumulator
 stores the latest snapshot rather than summing per turn (summing would
 double-count). The four token fields (input / output / cache read / cache write)
-plus the session's `model` are written on the row. The
+plus the session's `model` are written on the row - **exactly as the provider reported
+them**, which is why the same tokens mean different things per provider (see the known
+issue below). The
 row's sort key is `runId` - a per-microVM-lifetime nonce - so:
 
 - a session's many triggers refresh **one** row (no double-counting);
@@ -196,20 +198,80 @@ rows without the per-invocation array fall back to it as a single sample.
 **Cost** is computed read-side: each session is priced at its own `model`'s rate
 from the `MODEL_PRICING` map (`packages/shared/src/models.ts`, `costFor`), summed
 over the window. Pricing on the read side means a rate correction re-prices
-history on the next dashboard load (there's no frozen per-row cost). Anthropic
-rates are the verified Bedrock sticker prices; the OpenAI-via-Mantle rates are
-estimates pending a real bill - the token counts are exact regardless, only the
-dollar figure shifts when the map is corrected. Aggregation is done in code over
+history on the next dashboard load (there's no frozen per-row cost). Aggregation is
+done in code over
 a bounded window - session volumes are modest, and this keeps the write path a
 single Put with no rollup coordination. Add day-bucket rollup rows if volume ever
 demands it.
+
+#### KNOWN ISSUE: OpenAI cache hits are counted (and charged) twice
+
+Every read path treats the four token fields as disjoint - each token counted once, so
+the total is their sum and the cost is four multiplications. A stored row's fields are
+whatever the provider reported, and the two providers don't agree:
+
+- **Bedrock/Converse (Anthropic)** excludes cache tokens from `inputTokens`: total
+  input = `inputTokens + cacheReadInputTokens + cacheWriteInputTokens`. The four
+  drivers are already disjoint. This is stated in the Bedrock prompt-caching guide and
+  confirmed on the wire: a Converse call with a `cachePoint` in eu-north-1 returned
+  `inputTokens: 10, outputTokens: 4, cacheReadInputTokens: 6168, totalTokens: 6182` -
+  the total ADDS the cache read.
+- **OpenAI (Mantle)** includes them: `cached_tokens` says how many of `input_tokens`
+  were a cache hit, and the cached rate replaces the input rate for those tokens.
+  Documented in the same guide's OpenAI section, whose example response is
+  `input_tokens: 2048, output_tokens: 256, total_tokens: 2304` with
+  `input_tokens_details.cached_tokens: 1920` - the cached tokens sit inside the input
+  count, and the total is just input + output. Strands maps `cached_tokens` onto the
+  same `cacheReadTokens` field, so nothing downstream can tell the conventions apart.
+
+Stored rows carry the same signature: every OpenAI row in this deployment has
+`cacheReadTokens <= inputTokens` (a subset), while Anthropic rows routinely have cache
+reads *thousands of times* `inputTokens` (disjoint).
+
+So **an OpenAI run's cache hits are counted twice in `totalTokens` and charged twice in
+`costUsd`** (input rate *and* cache rate). That is a multiple, not a rounding error: on a
+long session most input is a cache hit - an observed run had 4.4M of its 5.2M input
+tokens served from cache, so it reads ~1.8x the tokens and ~4.8x the cost. Anthropic
+rows are unaffected.
+
+This is **deliberately not compensated for here**. The defect is that Strands' `Usage`
+type has no contract for whether cache reads sit inside `inputTokens`, so the fix belongs
+upstream (`strands-agents/harness-sdk`); a local de-overlap would be a workaround to
+unpick later. Tracked in issue #6, which carries the evidence, what's needed upstream and
+the checklist for this file. Until a fixed SDK ships, read an OpenAI agent's spend figure
+as an upper bound.
+
+#### Where the rates come from
+
+Both providers' numbers are more specific than "the list price", and both
+distinctions are worth real money:
+
+- **Anthropic**: Bedrock's rate, not Anthropic's first-party one, and Bedrock has two
+  tiers - a `global.` inference profile is 1x, a geo-pinned (`eu.`/`us.`) or in-region
+  one is **1.1x**. `MODELS` uses `eu.` profiles (a profile prefix must match the
+  calling region - see docs/models.md), so `MODEL_PRICING` carries the geo-tier rate.
+  Within a tier the rate is the same in eu-north-1 and us-east-1. `sonnet-5` is on
+  promotional pricing through **2026-08-31** ($2.2/$11 geo), reverting to $3.3/$16.5.
+- **OpenAI via Mantle**: AWS publishes a Mantle rate for `gpt-oss-*` only (that one is
+  exact, and identical in both regions); the gpt-5.6 family is priced from OpenAI's own
+  standard short-context list, since AWS publishes nothing for it. Two bounded gaps
+  remain, both stated in the map: Bedrock-brokered OpenAI billing "may differ" from
+  OpenAI's list, and the long-context tier (2x) isn't modelled. Strands' Responses
+  adapter never surfaces OpenAI's `cache_write_tokens`, so an OpenAI run reports no
+  cache writes at all - they're priced in the map but always 0 today.
+
+The single-rate-per-model table means a rate change re-prices *history* too. Doing that
+properly needs an effective-dated table keyed on the run's `endedAt`; today's cost
+figure is "what this run's tokens would cost at today's price", which is the honest
+reading of a read-side price.
 
 Every numeric on a summary row is **written by the runtime and not shape-validated at
 ingest** (see CLAUDE.md's within-tenant ingest residual), so the read side coerces: a
 missing or non-numeric field contributes `0` (or `1`, for `invocations`) rather than
 `NaN`. One `NaN` would propagate through every sum, percentile and bucket and render the
-whole window as `null` on the wire. `costFor` and `tokenTotal` harden their own inputs
-too, and the run-list projection defaults the same fields.
+whole window as `null` on the wire. Both read paths coerce the token bundle field by
+field (`costFor` and `tokenTotal` harden their inputs too), and the run-list projection
+defaults the same fields.
 
 ### The UI
 

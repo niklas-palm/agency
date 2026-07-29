@@ -180,13 +180,13 @@ describe("aggregate", () => {
 
   it("totals tokens and prices cost per session's own model", () => {
     const rows = [
-      // haiku: input $1/MTok, output $5/MTok → 1_000_000*1 + 200_000*5 = $2.00
+      // haiku: input $1.10/MTok, output $5.50/MTok → 1_000_000*1.1 + 200_000*5.5 = $2.20
       session({
         endedAt: "2026-07-20T10:00:00Z",
         model: "haiku-4.5",
         tokens: { inputTokens: 1_000_000, outputTokens: 200_000, cacheReadTokens: 0, cacheWriteTokens: 0 },
       }),
-      // opus: input $5/MTok → 1_000_000*5 = $5.00
+      // opus: input $5.50/MTok → 1_000_000*5.5 = $5.50
       session({
         endedAt: "2026-07-20T10:30:00Z",
         model: "opus-4.8",
@@ -196,15 +196,15 @@ describe("aggregate", () => {
     const out = aggregate(rows, from, to, "hour", null);
     expect(out.tokens).toEqual({ inputTokens: 2_000_000, outputTokens: 200_000, cacheReadTokens: 0, cacheWriteTokens: 0 });
     expect(out.totalTokens).toBe(2_200_000);
-    expect(out.costUsd).toBeCloseTo(7.0, 6); // $2.00 (haiku) + $5.00 (opus)
+    expect(out.costUsd).toBeCloseTo(7.7, 6); // $2.20 (haiku) + $5.50 (opus)
     const h10 = out.series.find((b) => b.bucket === "2026-07-20T10")!;
     expect(h10.tokens).toBe(2_200_000);
-    expect(h10.costUsd).toBeCloseTo(7.0, 6);
-    // Per-session cost: mean + percentiles over the two sessions ($2.00, $5.00).
-    expect(out.avgCostUsd).toBeCloseTo(3.5, 6); // (2+5)/2
-    expect(out.p50CostUsd).toBeCloseTo(2.0, 6); // nearest-rank of [2,5]
-    expect(out.p95CostUsd).toBeCloseTo(5.0, 6);
-    expect(out.p99CostUsd).toBeCloseTo(5.0, 6);
+    expect(h10.costUsd).toBeCloseTo(7.7, 6);
+    // Per-session cost: mean + percentiles over the two sessions ($2.20, $5.50).
+    expect(out.avgCostUsd).toBeCloseTo(3.85, 6); // (2.2+5.5)/2
+    expect(out.p50CostUsd).toBeCloseTo(2.2, 6); // nearest-rank of [2.2,5.5]
+    expect(out.p95CostUsd).toBeCloseTo(5.5, 6);
+    expect(out.p99CostUsd).toBeCloseTo(5.5, 6);
   });
 
   it("treats legacy rows (no tokens/model) as zero tokens and zero cost", () => {
