@@ -780,7 +780,10 @@ export function buildRoutes(deps: Deps): Hono<Env> {
   // requireScope with no principal: a 500 rather than a 401, and one null-guard away from an
   // unauthenticated credential write.
   app.use("/agents/:id/slack", requireAuth);
+  // Each nested path needs its own line - the `/agents/:id/slack` prefix does NOT cover them, and
+  // an omission fails closed at requireScope (401 for everyone), so the route is simply unusable.
   app.use("/agents/:id/slack/credentials", requireAuth);
+  app.use("/agents/:id/slack/bot-name", requireAuth);
   app.use("/agents/:id/slack/channels", requireAuth);
   app.use("/skills", requireAuth);
   app.use("/skills/:id", requireAuth);
