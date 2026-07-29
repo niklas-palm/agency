@@ -88,8 +88,9 @@ export function shouldHandleMention(
   }
 
   // The allowlist is a security control, not a filter: an agent with a bash tool that answers
-  // anywhere it's invited means anyone who can /invite it can direct it. Empty = nowhere.
-  if (!e.channel || !trigger.channels.includes(e.channel)) {
+  // anywhere it's invited means anyone who can /invite it can direct it. Empty = nowhere, unless
+  // the operator has explicitly opted into answering wherever the bot is invited.
+  if (!e.channel || !(trigger.allChannels || trigger.channels.includes(e.channel))) {
     return { handle: false, reason: "channel_not_allowed" };
   }
 
@@ -235,23 +236,35 @@ export function mountSlackRoutes<E extends Env>(app: Hono<E>, deps: SlackRouteDe
 
     const decision = shouldHandleMention(body, trigger);
     if (!decision.handle) {
-      // 200, not an error: Slack retries non-2xx, and a deliberate drop is not a failure.
+      // 200, not an error: Slack retries non-2xx, and a deliberate drop is not a failure. Logged
+      // because a silent drop makes "I mentioned it and nothing happened" undebuggable - this is
+      // the first thing to look for in CloudWatch when a mention does nothing.
+      console.log("slack event dropped", record.id, decision.reason, body.event?.channel ?? "-");
       return c.json({ ok: true, dropped: decision.reason });
     }
 
-    // Slack requires an ack within 3 seconds, so dispatch must not block the response. Errors
-    // are swallowed here on purpose - the trajectory records the failure, and a 500 to Slack
-    // would only produce a retry that fails the same way.
-    void deps
-      .dispatch({
+    const sessionId = slackSessionId(decision.channel, decision.threadTs);
+    // AWAIT the dispatch. This ran as fire-and-forget and silently did nothing in prod: a Lambda
+    // freezes the moment it returns its response, so the pending promise was killed before the
+    // invoke completed - the webhook 200'd in 2ms and no run ever started. Awaiting is safe
+    // within Slack's 3s budget because invoking is itself an async handoff (the runtime acks
+    // immediately and streams telemetry separately), which is exactly what the API invoke route
+    // does at routes.ts.
+    try {
+      await deps.dispatch({
         record,
         prompt: decision.prompt,
-        sessionId: slackSessionId(decision.channel, decision.threadTs),
+        sessionId,
         channel: decision.channel,
         threadTs: decision.threadTs,
         messageTs: decision.messageTs,
-      })
-      .catch(() => {});
+      });
+    } catch (e) {
+      // Still 200: Slack would retry a non-2xx into the same failure, and the retry path acks
+      // without re-dispatching anyway. Log it - this is the only record that the mention arrived
+      // and failed, since a failed dispatch may never have written a trajectory event.
+      console.error("slack dispatch failed", record.id, sessionId, e);
+    }
     return c.body(null, 200);
   });
 }

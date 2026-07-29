@@ -30,7 +30,8 @@ export function slackSetupState(record: AgentRecord): SlackSetupState | null {
   if (!t) return null;
   if (!record.slackSecrets?.botToken) return t.urlVerified ? "url_verified" : "manifest_ready";
   if (!t.teamId) return "needs_bot_token";
-  return t.channels.length ? "live" : "verified";
+  // allChannels means the agent WILL answer somewhere, so it's live without an explicit list.
+  return t.allChannels || t.channels.length ? "live" : "verified";
 }
 
 export interface SlackAuthTestResult {
@@ -95,6 +96,8 @@ export interface SlackChannelInfo {
   id: string;
   name: string;
   isPrivate: boolean;
+  /** Whether the bot is in the channel. Slack delivers a mention ONLY to an app that is. */
+  isMember?: boolean;
 }
 
 /**
@@ -148,6 +151,70 @@ export async function slackChannelInfo(
     };
   }
   return { id, name: ch.name ?? id, isPrivate: Boolean(ch.is_private) };
+}
+
+/**
+ * The channels the bot can see, for the picker.
+ *
+ * `conversations.list` needs `channels:read`/`groups:read` - the same scopes
+ * `conversations.info` needs, so the picker costs no extra permission and no re-install.
+ *
+ * `exclude_archived` because an archived channel can't receive a mention, and a single page of
+ * 200 (Slack's practical default) rather than paging: a picker is for choosing among the
+ * channels you actually work in, and a workspace with more than that is better served by
+ * pasting an id. The reply says whether it was truncated so the UI can say so honestly rather
+ * than silently showing a subset.
+ */
+export async function slackChannelList(
+  botToken: string,
+): Promise<{ channels: SlackChannelInfo[]; truncated: boolean } | SlackSetupError> {
+  const params = new URLSearchParams({
+    limit: "200",
+    exclude_archived: "true",
+    types: "public_channel,private_channel",
+  });
+  let res: Response;
+  try {
+    res = await fetch(`${SLACK_API}/conversations.list?${params}`, {
+      headers: { authorization: `Bearer ${botToken}` },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+  } catch {
+    return { ok: false, error: "could not reach Slack", hint: "Transient - try again." };
+  }
+  const body = (await res.json().catch(() => null)) as
+    | {
+        ok?: boolean;
+        error?: string;
+        channels?: Array<{ id?: string; name?: string; is_private?: boolean; is_member?: boolean }>;
+        response_metadata?: { next_cursor?: string };
+      }
+    | null;
+  if (!body?.ok) {
+    const err = body?.error ?? `http ${res.status}`;
+    return {
+      ok: false,
+      error: `Slack couldn't list channels: ${err}`,
+      hint:
+        err === "missing_scope"
+          ? "The app needs channels:read and groups:read - re-install it with the current manifest."
+          : "You can still paste a channel id directly.",
+    };
+  }
+  const channels = (body.channels ?? [])
+    .filter((c): c is { id: string; name?: string; is_private?: boolean; is_member?: boolean } =>
+      typeof c.id === "string",
+    )
+    .map((c) => ({
+      id: c.id,
+      name: c.name ?? c.id,
+      isPrivate: Boolean(c.is_private),
+      // Slack only delivers app_mention to an app that's IN the conversation, so this is the
+      // difference between a channel that will work and one that looks configured and won't.
+      isMember: Boolean(c.is_member),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return { channels, truncated: Boolean(body.response_metadata?.next_cursor) };
 }
 
 /** Apply verified workspace details to the Slack trigger, leaving other triggers untouched. */

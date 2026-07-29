@@ -95,7 +95,7 @@ export async function callSlack(
 
   // Defence in depth: the channel came from the token, but if the allowlist has since changed
   // (the user removed a channel while a thread was live) honour the new list.
-  if (!trigger.channels.includes(target.channel)) {
+  if (!trigger.allChannels && !trigger.channels.includes(target.channel)) {
     return {
       error: "this channel is no longer allowed",
       hint: "The agent's Slack channel allowlist no longer includes this channel.",

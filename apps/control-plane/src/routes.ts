@@ -68,6 +68,7 @@ import {
   slackSetupState,
   slackAuthTest,
   slackChannelInfo,
+  slackChannelList,
   withSlackVerification,
 } from "./slack-setup.js";
 import { slackManifest, slackRequestUrl, SLACK_BOT_SCOPES, slackOf } from "@agency/shared";
@@ -1932,6 +1933,7 @@ export function buildRoutes(deps: Deps): Hono<Env> {
       grantedScopes: trigger.grantedScopes,
       urlVerified: Boolean(trigger.urlVerified),
       channels: trigger.channels,
+      allChannels: Boolean(trigger.allChannels),
     });
   });
 
@@ -1975,6 +1977,22 @@ export function buildRoutes(deps: Deps): Hono<Env> {
     });
   });
 
+  /** The channels the bot can see, for the setup picker. Read-only; no state change. */
+  app.get("/agents/:id/slack/channels", requireScope("read"), async (c) => {
+    const auth = authorize(c.var.principal, await getAgent(c.req.param("id")), "view", "you can't view this agent");
+    if (!auth.ok) return c.json({ error: auth.error }, auth.status);
+    const trigger = slackOf(auth.record.config);
+    if (!trigger) return c.json({ error: "this agent has no Slack trigger" }, 404);
+    const botToken = auth.record.slackSecrets?.botToken;
+    if (!botToken) return c.json({ error: "connect the Slack app first" }, 409);
+
+    const listed = await slackChannelList(botToken);
+    if ("ok" in listed && listed.ok === false) {
+      return c.json({ error: listed.error, hint: listed.hint }, 400);
+    }
+    return c.json(listed);
+  });
+
   /**
    * Set the channel allowlist. Every channel is validated against the CONNECTED workspace
    * first: a well-formed id from another workspace would otherwise produce an agent that looks
@@ -1995,6 +2013,9 @@ export function buildRoutes(deps: Deps): Hono<Env> {
     const requested = Array.isArray(body?.channels) ? body.channels : null;
     if (!requested) return c.json({ error: "channels must be an array" }, 400);
     if (requested.length > 25) return c.json({ error: "at most 25 channels" }, 400);
+    // Opt-in to answering wherever the bot is invited. The explicit list is still kept and still
+    // validated, so turning this back off restores the previous allowlist rather than losing it.
+    const allChannels = body?.allChannels === true;
 
     const resolved: Array<{ id: string; name: string; isPrivate: boolean }> = [];
     for (const raw of requested) {
@@ -2007,10 +2028,12 @@ export function buildRoutes(deps: Deps): Hono<Env> {
     }
 
     const triggers = record.config.triggers.map((t) =>
-      t.type === "slack" ? { ...t, channels: resolved.map((r) => r.id) } : t,
+      t.type === "slack"
+        ? { ...t, channels: resolved.map((r) => r.id), ...(allChannels ? { allChannels: true } : {}) }
+        : t,
     );
     await applyNewVersion(deps, record, { ...record.config, triggers }, "set Slack channels");
-    return c.json({ channels: resolved });
+    return c.json({ channels: resolved, allChannels });
   });
 
   // The Slack webhook. Public + unauthenticated by necessity (Slack can hold no credential of

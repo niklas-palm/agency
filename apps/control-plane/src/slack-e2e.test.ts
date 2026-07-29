@@ -179,6 +179,42 @@ describe("Slack end to end", () => {
     expect(invokes[0]!.sessionId).not.toBe(invokes[1]!.sessionId);
   });
 
+  /**
+   * The bug that made the whole feature silently do nothing in production.
+   *
+   * The route used to fire-and-forget (`void deps.dispatch(...)`). That works in a long-lived Node
+   * process, so every test passed - but a Lambda FREEZES the moment it returns its response, so
+   * the pending promise was killed before the invoke completed. The webhook 200'd in ~2ms and no
+   * run ever started.
+   *
+   * So: the invoker must have been called BY THE TIME the response resolves. No `await` on a
+   * timer, no settling - that's precisely the leniency that hid this.
+   */
+  it("invokes BEFORE responding, so a frozen Lambda can't kill the dispatch", async () => {
+    let invokedBeforeResponse = false;
+    const slow = {
+      invoke: vi.fn(async (args: Record<string, unknown>) => {
+        // A real invoke is a network call; simulate one so a fire-and-forget can't sneak past.
+        await new Promise((r) => setTimeout(r, 25));
+        invokes.push(args);
+        invokedBeforeResponse = true;
+        return { status: "triggered", sessionId: args.sessionId as string };
+      }),
+    };
+    const app = buildRoutes({
+      invoker: slow,
+      scheduleProvisioner: { reconcile: vi.fn(async () => {}) },
+      identity: { ensureUser: vi.fn(), emailForUser: vi.fn() },
+    } as never);
+
+    const res = await app.fetch(mentionRequest(`<@${BOT_USER}> do the thing`));
+    expect(res.status).toBe(200);
+    // Asserted with NO intervening await: if the route returned before the invoke finished, the
+    // work would be lost in Lambda.
+    expect(invokedBeforeResponse, "the route responded before the invoke completed").toBe(true);
+    expect(slow.invoke).toHaveBeenCalledTimes(1);
+  });
+
   it("an unsigned mention never reaches the invoker", async () => {
     const raw = JSON.stringify({
       type: "event_callback",

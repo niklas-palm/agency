@@ -149,6 +149,7 @@ export function parseTriggers(value: unknown): Trigger[] | null {
             }
           : {}),
         ...(t.urlVerified === true ? { urlVerified: true } : {}),
+        ...(t.allChannels === true ? { allChannels: true } : {}),
       };
       out.push(slack);
       continue;

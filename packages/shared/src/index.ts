@@ -87,8 +87,20 @@ export interface SlackTrigger {
   teamName?: string;
   /** Our bot's user id (`U…`), from `auth.test`. Used to drop the bot's own events (loop guard). */
   botUserId?: string;
-  /** Channel ids (`C…`/`G…`) the agent will answer in. Empty = answer nowhere (fail closed). */
+  /**
+   * Channel ids (`C…`/`G…`) the agent will answer in. Empty = answer nowhere (fail closed),
+   * unless `allChannels` is set.
+   */
   channels: string[];
+  /**
+   * Answer in ANY channel the bot is invited to, ignoring `channels`.
+   *
+   * The allowlist exists because anyone who can `/invite` the bot can direct the agent, so this
+   * deliberately hands that gate to whoever can invite. It's the right choice for a private
+   * workspace or a low-privilege agent, and the wrong one for an agent with powerful
+   * integrations - which is why it's opt-in and labelled rather than the default.
+   */
+  allChannels?: boolean;
   /** Scopes Slack actually GRANTED, read from `auth.test`'s `x-oauth-scopes`. Display only. */
   grantedScopes?: string[];
   /** True once Slack's `url_verification` challenge has been answered for this agent. */
