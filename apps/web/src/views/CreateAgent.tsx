@@ -116,6 +116,7 @@ export function CreateAgent() {
             networkMode,
             envKeys: Object.keys(env),
             integrationNames,
+            fromSlack: slackEnabled,
           }}
         />
 

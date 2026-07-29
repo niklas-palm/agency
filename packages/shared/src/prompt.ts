@@ -104,6 +104,50 @@ export function envPrompt(keys: string[]): string {
 }
 
 /** The capability inputs that decide which conditional blocks are added. */
+/**
+ * What an agent invoked from Slack must know, and the one thing it gets wrong.
+ *
+ * Leads with the delivery rule because that failure is invisible from our side: the agent writes a
+ * good answer, returns it as text, and the trajectory records a successful run while the person in
+ * Slack sees only the 👀. Modelled on the sibling slack-dev agent, whose wording this borrows.
+ */
+export const SLACK_PROMPT = `## ⚠️ THE ONE RULE THAT MATTERS: your reply is a tool call, not your text
+
+The person is in Slack. They CANNOT see your assistant text, your reasoning, or your tool
+output - the ONLY thing that reaches them is a message you send with \`slack_reply\`. Nothing
+forwards your final message anywhere. Writing a good answer and stopping means they see nothing
+but the 👀. This is the #1 way to fail here, and from your side it looks like success.
+
+Mechanically:
+1. Your turn is NOT complete until \`slack_reply\` has succeeded. Make "did I reply?" the last
+   thing you check before ending the turn.
+2. Then call \`slack_set_status\` with \`done\` (or \`failed\`, after explaining what went wrong) as
+   your FINAL tool call.
+3. If you catch yourself about to end a turn without having replied, stop and reply.
+
+You are already talking to the right thread - it is bound to this invocation, so there is
+nothing to look up and no way to post to the wrong place.
+
+Other things worth knowing:
+
+- Reply in the thread you were called from - that is where \`slack_reply\` posts.
+- The thread already shows 👀 - the platform adds it the moment your mention arrives, so you
+  never need to acknowledge receipt yourself.
+- Set 🟡 \`working\` as soon as you can see the task will take more than a moment, and finish
+  with 🟢 \`done\` (after replying), 🔴 \`failed\`, or ❓ \`needs_input\`. They are mutually exclusive.
+  Make the terminal status your LAST tool call, so it can't claim done before you have answered.
+- Slack formatting is mrkdwn, not Markdown: *bold*, _italic_, \`code\`, \`\`\`blocks\`\`\`.
+  Links are <https://example.com|label>.
+- You are given ONLY the text of the mention. If it refers to anything you can't see -
+  "this", "that error", "as discussed" - call \`slack_read_thread\` before answering rather
+  than guessing. It returns the thread oldest-first.
+- If a request is genuinely ambiguous or the call is theirs to make, \`slack_ask_user\` and stop.
+  Guessing wrong costs them more than being asked. Don't use it to confirm routine steps.
+- Long output belongs in a file: \`slack_upload_file\` beats pasting a wall of text. They can't
+  see your workspace, so a path means nothing to them. To read an attachment, find its id with
+  \`slack_read_thread\` and then \`slack_download_file\`.
+- Be brief. A Slack thread is a conversation, not a report.`;
+
 export interface PromptContext {
   baseTools: boolean;
   webSearch: boolean;
@@ -115,6 +159,17 @@ export interface PromptContext {
   envKeys: string[];
   /** Names of attached integrations (values/URLs never included). */
   integrationNames?: string[];
+  /**
+   * True when this run came from a Slack mention, which changes how the agent must ANSWER: its
+   * reply only reaches the person via a tool call.
+   *
+   * Lives here rather than being appended by the runtime so the web UI's prompt preview shows it -
+   * `platformPromptBlocks` is documented as everything Agency adds, and a block the preview can't
+   * see is a block nobody can review. The Slack block was appended in the runtime instead, which
+   * is how an agent shipped answering in plain text while the preview showed no Slack guidance at
+   * all.
+   */
+  fromSlack?: boolean;
 }
 
 /**
@@ -127,6 +182,11 @@ export function platformPromptBlocks(ctx: PromptContext): string[] {
   // isolated mode (no egress) - mirror agent.ts exactly.
   const webEnabled = ctx.networkMode !== "isolated" && ctx.webSearch && ctx.networkAccess;
   return [
+    // Slack FIRST, before even the base prompt. Everything else describes what the agent can do;
+    // this describes whether its answer reaches anyone at all, and getting it wrong is invisible
+    // from our side - a good answer returned as text records a successful run and the person sees
+    // only the 👀. It earns the top of the prompt.
+    ctx.fromSlack ? SLACK_PROMPT : "",
     BASE_PROMPT,
     ctx.networkMode === "isolated" ? ISOLATED_PROMPT : "",
     ctx.baseTools ? CODING_TOOLS_PROMPT : "",

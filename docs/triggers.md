@@ -271,6 +271,26 @@ proxy's arrangement, because they sit on the same Hono app behind the same priva
 isolation guarantee is unweakened: the microVM still cannot reach the internet, and it still holds
 no Slack credential.
 
+### Telling the agent it's in Slack
+
+Three things carry that, and the first two alone were not enough:
+
+1. **The tools** (`fromSlack` on the payload wires them).
+2. **The system prompt** - `SLACK_PROMPT`, which now leads the whole prompt, ahead of even
+   `BASE_PROMPT`, and lives in `packages/shared/src/prompt.ts` so the web UI's preview renders it
+   too. It was appended in the runtime instead, which meant the block existed but no creator could
+   review it - a block nobody can see is a block nobody checks.
+3. **The turn itself.** This was the missing one. The prompt said "you were invoked from Slack",
+   but the turn text was the bare user message - so from the model's position a Slack mention looked
+   like any other invoke, and it answered in plain text. The trajectory recorded a perfectly good
+   answer; the person saw only the 👀. The tell was that asking the agent to use the Slack tools
+   worked: the guidance was present, the *situation* wasn't. `dispatchSlackRun` now prefixes the turn
+   with a short `[Slack mention]` frame naming who mentioned it and that `slack_reply` is how the
+   answer arrives. The user's own words come last so they read as the request.
+
+The trajectory still records the user's ORIGINAL text, not the framed version - a trace should show
+what was asked, not our scaffolding.
+
 ### The agent's Slack surface
 
 Six tools, matching the sibling slack-dev agent so the two behave alike in one workspace:

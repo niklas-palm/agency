@@ -2225,8 +2225,8 @@ export function buildRoutes(deps: Deps): Hono<Env> {
   // The Slack webhook. Public + unauthenticated by necessity (Slack can hold no credential of
   // ours), so its HMAC is the whole boundary - see slack-routes.ts for the ordered checks.
   mountSlackRoutes(app, {
-    dispatch: ({ record, prompt, sessionId, messageTs }) =>
-      dispatchSlackRun(deps.invoker, { record, prompt, sessionId, messageTs }),
+    dispatch: ({ record, prompt, sessionId, messageTs, slackUser }) =>
+      dispatchSlackRun(deps.invoker, { record, prompt, sessionId, messageTs, slackUser }),
   });
 
   return app;

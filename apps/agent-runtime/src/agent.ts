@@ -13,7 +13,7 @@ import { buildBaseTools } from "./tools.js";
 import { buildTimeTool } from "./time-tool.js";
 import { buildFetchTool, buildWebSearchClient } from "./web-tools.js";
 import { buildIntegrationTools } from "./integration-tools.js";
-import { buildSlackTools, SLACK_PROMPT } from "./slack-tools.js";
+import { buildSlackTools } from "./slack-tools.js";
 import { composeSystemPrompt } from "@agency/shared";
 import { InjectionPlugin } from "./mailbox.js";
 import { WEB_SEARCH_GATEWAY_URL } from "./config.js";
@@ -83,12 +83,13 @@ export function buildAgent({ config, agentId, sessionId, skills, integrations, f
       hasSearch,
       envKeys,
       integrationNames: resolvedIntegrations.map((i) => i.name),
+      // Composed by the shared module (not appended here) so the web UI's prompt preview shows the
+      // Slack block too - a block the creator can't see is a block nobody reviews.
+      fromSlack: Boolean(fromSlack),
     },
     config.systemPrompt,
   );
-  // The Slack block goes AFTER the composed prompt (same position ISOLATED_PROMPT takes):
-  // it describes the reply channel for THIS run, not the agent's standing behaviour.
-  const finalPrompt = fromSlack ? `${systemPrompt}\n\n${SLACK_PROMPT}` : systemPrompt;
+
 
   // Attached skills via the Strands AgentSkills plugin: metadata is injected into
   // the system prompt and the full instructions are loaded on demand via a tool
@@ -105,7 +106,7 @@ export function buildAgent({ config, agentId, sessionId, skills, integrations, f
     name: config.name,
     model: buildModel(config.model),
     tools,
-    systemPrompt: finalPrompt,
+    systemPrompt,
     plugins,
     printer: false,
   });

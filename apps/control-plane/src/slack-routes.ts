@@ -76,7 +76,14 @@ export function shouldHandleMention(
   body: SlackCallbackBody,
   trigger: SlackTrigger,
 ):
-  | { handle: true; prompt: string; channel: string; threadTs: string; messageTs: string }
+  | {
+      handle: true;
+      prompt: string;
+      channel: string;
+      threadTs: string;
+      messageTs: string;
+      slackUser?: string;
+    }
   | { handle: false; reason: SlackDropReason } {
   if (body.type !== "event_callback" || !body.event) return { handle: false, reason: "not_an_event_callback" };
   const e = body.event;
@@ -113,6 +120,7 @@ export function shouldHandleMention(
     channel: e.channel,
     threadTs: e.thread_ts ?? e.ts,
     messageTs: e.ts,
+    ...(e.user ? { slackUser: e.user } : {}),
   };
 }
 
@@ -146,6 +154,8 @@ export interface SlackRouteDeps {
     threadTs: string;
     /** The ts of the message that invoked the agent - the correct reaction target. */
     messageTs: string;
+    /** Who mentioned the agent, so the turn can name them. */
+    slackUser?: string;
   }): Promise<void>;
   /** Unix seconds; injectable for tests. */
   nowSeconds?(): number;
@@ -271,6 +281,7 @@ export function mountSlackRoutes<E extends Env>(app: Hono<E>, deps: SlackRouteDe
         channel: decision.channel,
         threadTs: decision.threadTs,
         messageTs: decision.messageTs,
+        slackUser: decision.slackUser,
       });
     } catch (e) {
       // Still 200: Slack would retry a non-2xx into the same failure, and the retry path acks

@@ -25,6 +25,8 @@ export interface SlackDispatchArgs {
   sessionId: string;
   /** The ts of the message that invoked the agent - the reaction target, carried in the token. */
   messageTs: string;
+  /** Who mentioned the agent, so the turn frame can name them. */
+  slackUser?: string;
 }
 
 /**
@@ -34,12 +36,27 @@ export interface SlackDispatchArgs {
  */
 export async function dispatchSlackRun(
   invoker: AgentInvoker,
-  { record, prompt, sessionId, messageTs }: SlackDispatchArgs,
+  { record, prompt, sessionId, messageTs, slackUser }: SlackDispatchArgs,
 ): Promise<void> {
   const [skills, integrations] = await Promise.all([
     resolveSkills(record.orgId, record.createdBy, record.config.skillIds),
     resolveIntegrations(record.orgId, record.createdBy, record.config.integrationIds),
   ]);
+
+  // Frame the turn as a Slack mention, in the PROMPT itself.
+  //
+  // The system prompt says "you were invoked from Slack", but the turn text was the bare user
+  // message - so from the model's position this looked like any other invoke, and it answered in
+  // text. Asking it explicitly to use the Slack tools worked, which is the tell: the guidance was
+  // present, the SITUATION wasn't. A per-turn frame is what ties the two together, and it survives
+  // a long conversation where a system prompt from many turns ago has faded.
+  const framed = [
+    "[Slack mention]",
+    `Someone mentioned you in a Slack thread${slackUser ? ` (<@${slackUser}>)` : ""}. Answer them by`,
+    "calling `slack_reply` - text you return does not reach them.",
+    "",
+    prompt,
+  ].join("\n");
 
   const ack = await invoker.invoke({
     agentId: record.id,
@@ -48,7 +65,7 @@ export async function dispatchSlackRun(
     skills,
     integrations: integrations.manifests,
     sessionId,
-    prompt,
+    prompt: framed,
     fromSlack: true,
     ingestToken: mintSessionToken(
       record.orgId,
@@ -64,6 +81,7 @@ export async function dispatchSlackRun(
   // Record the user's message so the trace shows what was asked, exactly as the API route
   // does. Only for a fresh turn: an injected message is recorded by the runtime's hook.
   if (ack.status === "triggered") {
+    // The user's own words, not the framed version - a trace should show what was asked.
     await recordPrompt(ack.sessionId, record.id, prompt).catch((e) =>
       console.error("recordPrompt failed", e),
     );

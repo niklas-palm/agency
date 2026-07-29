@@ -141,11 +141,18 @@ describe("Slack end to end", () => {
     expect(invokes).toHaveLength(1);
     expect(invokes[0]).toMatchObject({
       agentId: AGENT_ID,
-      prompt: "summarise the deploy",
       fromSlack: true,
       sessionId: slackSessionId(CHANNEL, "1700000000.000100"),
       version: 3,
     });
+    // The turn text FRAMES the mention rather than passing it bare. The system prompt alone left
+    // the model unable to tell a Slack turn from any other invoke, so it answered in plain text
+    // and the person saw only the 👀 - the frame is what ties the guidance to the situation.
+    const sent = invokes[0]!.prompt as string;
+    expect(sent).toContain("[Slack mention]");
+    expect(sent).toContain("slack_reply");
+    // The user's own words survive, last, so they read as the request rather than as preamble.
+    expect(sent.trimEnd().endsWith("summarise the deploy")).toBe(true);
     // The capability token must be present, or the agent's reply tool can't authenticate.
     expect(typeof invokes[0]!.ingestToken).toBe("string");
     expect(recordPrompt).toHaveBeenCalledTimes(1);
@@ -168,7 +175,7 @@ describe("Slack end to end", () => {
 
     expect(invokes).toHaveLength(2);
     expect(invokes[1]!.sessionId).toBe(invokes[0]!.sessionId);
-    expect(invokes[1]!.prompt).toBe("also check the logs");
+    expect(String(invokes[1]!.prompt).trimEnd().endsWith("also check the logs")).toBe(true);
   });
 
   it("a mention in a different thread is a different session", async () => {

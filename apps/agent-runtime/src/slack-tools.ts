@@ -45,10 +45,12 @@ export function buildSlackTools(fromSlack: boolean) {
   const reply = tool({
     name: "slack_reply",
     description:
-      "Post a message into the Slack thread that invoked you. This is how the person who " +
-      "mentioned you sees your answer - text you merely return does NOT reach Slack. Use " +
-      "Slack mrkdwn: *bold*, _italic_, `code`, ```blocks```. Call this once with your final " +
-      "answer; use slack_set_status for progress instead of posting partial updates.",
+      "Post a message into the Slack thread you were summoned from. THIS IS HOW THE PERSON HEARS " +
+      "FROM YOU. Your assistant text reaches nobody - only what you post here. ALWAYS use it for " +
+      "your substantive answer, and for a progress note if the work will take a while. " +
+      "Slack mrkdwn, not GitHub markdown: *bold* (single asterisks), _italic_, `code`, " +
+      "```blocks```, <https://url|label> links, - bullets. NO # headings, NO **double asterisks**, " +
+      "NO tables.",
     inputSchema: z.object({
       text: z.string().min(1).describe("The message to post, in Slack mrkdwn."),
     }),
@@ -153,31 +155,3 @@ export function buildSlackTools(fromSlack: boolean) {
 
   return [reply, setStatus, readThread, askUser, uploadFile, downloadFile];
 }
-
-/**
- * The Slack-specific system-prompt block, composed like ISOLATED_PROMPT. The model needs to be
- * told that returning text is not the same as posting it - this is the single most likely way a
- * Slack run "succeeds" while the user sees nothing.
- */
-export const SLACK_PROMPT = [
-  "You were invoked by someone mentioning you in a Slack thread.",
-  "",
-  "- Your reply reaches them ONLY if you call `slack_reply`. Text you return is not posted.",
-  "- Reply in the thread you were called from - that is where `slack_reply` posts.",
-  "- The thread already shows 👀 - the platform adds it the moment your mention arrives, so you",
-  "  never need to acknowledge receipt yourself.",
-  "- Set 🟡 `working` as soon as you can see the task will take more than a moment, and finish",
-  "  with 🟢 `done` (after replying), 🔴 `failed`, or ❓ `needs_input`. They are mutually exclusive.",
-  "  Make the terminal status your LAST tool call, so it can't claim done before you have answered.",
-  "- Slack formatting is mrkdwn, not Markdown: *bold*, _italic_, `code`, ```blocks```.",
-  "  Links are <https://example.com|label>.",
-  "- You are given ONLY the text of the mention. If it refers to anything you can't see -",
-  "  \"this\", \"that error\", \"as discussed\" - call `slack_read_thread` before answering rather",
-  "  than guessing. It returns the thread oldest-first.",
-  "- If a request is genuinely ambiguous or the call is theirs to make, `slack_ask_user` and stop.",
-  "  Guessing wrong costs them more than being asked. Don't use it to confirm routine steps.",
-  "- Long output belongs in a file: `slack_upload_file` beats pasting a wall of text. They can't",
-  "  see your workspace, so a path means nothing to them. To read an attachment, find its id with",
-  "  `slack_read_thread` and then `slack_download_file`.",
-  "- Be brief. A Slack thread is a conversation, not a report.",
-].join("\n");
