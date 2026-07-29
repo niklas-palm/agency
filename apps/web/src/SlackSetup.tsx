@@ -387,7 +387,10 @@ function InstallStep({
           Slack grants a token the scopes the app had at the moment it was installed, and adding
           scopes afterwards does NOT change an existing token - it only changes what the next
           install will grant. This is the single most common reason setup fails here: the app's
-          settings show every permission, while the token you copied has two.
+          settings show every permission, while the token you copied has two. Slack shows a yellow
+          banner saying{" "}
+          <em className="text-ink">"You've changed the permission scopes your app uses"</em> when
+          this applies - if you see it, reinstall and copy the token again.
         </p>
       </div>
       <ol className="mb-3 space-y-1.5 text-xs text-muted">
