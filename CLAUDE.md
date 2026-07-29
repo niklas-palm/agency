@@ -7,6 +7,12 @@ immediately with a session id the client polls for status + trajectory. New mess
 working session are **injected mid-turn**. Everything is TypeScript; infra is CDK; auth is
 Cognito.
 
+**This repository is PUBLIC.** Everything you commit - code, comments, commit messages, test
+fixtures - is world-readable the moment it's pushed, and a commit message cannot be retracted
+by a later commit. Read *[This repository is PUBLIC](#this-repository-is-public)* (standing
+rules 18-21) before your first commit here; it is the one section where getting it wrong
+can't be fixed by a follow-up change.
+
 ## Where things live
 
 ```
@@ -54,6 +60,8 @@ docs/                Living documentation - the reference for WHY, and part of e
 README.md            The public front door. LICENSE (Apache-2.0) + NOTICE + SECURITY.md +
                      CONTRIBUTING.md exist for an open-source release; SECURITY.md is where
                      the accepted trade-offs are stated for a deployer.
+AGENTS.md            A pointer to this file, for agents that look for that name instead. It
+                     holds no rules of its own - one file stays the source of truth.
 ```
 
 ## Read the docs
