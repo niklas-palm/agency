@@ -299,6 +299,14 @@ function CreateAppStep({
         <strong className="text-ink">Next</strong> → <strong className="text-ink">Create</strong>.
         This line updates by itself once Slack calls our URL.
       </p>
+      <p className="mt-2 text-[11px] text-muted">
+        If it doesn't tick within a few seconds, open{" "}
+        <strong className="text-ink">Event Subscriptions</strong> in the app, click{" "}
+        <strong className="text-ink">Retry</strong> next to the Request URL, and then{" "}
+        <strong className="text-ink">Save Changes</strong> at the bottom - Slack doesn't keep the
+        verification until you save. It's Slack's behaviour, not a fault here, and it's worth
+        knowing that saving the config is also what makes Slack re-check the URL later.
+      </p>
       {stalled && (
         <div className="mt-3 rounded-md border border-line bg-canvas px-3 py-2">
           <p className="text-xs text-ink">Slack hasn't called us yet.</p>
@@ -371,11 +379,23 @@ function InstallStep({
         admin approval for apps, Slack asks you to request it instead of installing; this page
         waits here, so you can come back once it's approved.
       </p>
+      <div className="mb-3 rounded-md border border-line bg-canvas px-3 py-2">
+        <p className="text-[11px] text-ink">
+          <strong>If you edited the app's permissions after creating it, install it AGAIN.</strong>
+        </p>
+        <p className="mt-1 text-[11px] text-muted">
+          Slack grants a token the scopes the app had at the moment it was installed, and adding
+          scopes afterwards does NOT change an existing token - it only changes what the next
+          install will grant. This is the single most common reason setup fails here: the app's
+          settings show every permission, while the token you copied has two.
+        </p>
+      </div>
       <ol className="mb-3 space-y-1.5 text-xs text-muted">
         <li>
           1. Open <strong className="text-ink">OAuth &amp; Permissions</strong> →{" "}
-          <strong className="text-ink">Install to Workspace</strong> → Allow. (Some workspaces
-          show this under <strong className="text-ink">Install App</strong> instead.)
+          <strong className="text-ink">Install to Workspace</strong> (or{" "}
+          <strong className="text-ink">Reinstall to Workspace</strong> if it's already installed) →
+          Allow.
         </li>
         <li>
           2. Copy the <strong className="text-ink">Bot User OAuth Token</strong> (starts{" "}

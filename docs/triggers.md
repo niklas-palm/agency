@@ -90,6 +90,24 @@ The manifest is complete on purpose - scopes, the `app_mention` subscription, an
 own webhook URL are all baked in. A "manifest minus events" approach leaves the user to enable
 things by hand, and when they forget, the app looks installed but never delivers.
 
+### Two Slack behaviours the setup has to work around
+
+Both cost real debugging time, and neither is a fault in this code:
+
+**The URL handshake often needs a manual Retry.** Slack doesn't reliably send `url_verification`
+when an app is created from a manifest, and it re-verifies whenever the app's config is saved. The
+fix is Event Subscriptions → **Retry** → **Save Changes** - and the Save matters: Slack doesn't keep
+the verification until the config is saved. The panel says this rather than leaving the user staring
+at a spinner.
+
+**Adding scopes does not change an existing token.** Slack grants a token whatever the app had at
+the moment it was *installed*; editing permissions afterwards only changes what the NEXT install
+grants. So the app's settings page can show ten permissions while the token in your clipboard has
+two, and nothing in Slack's UI flags the discrepancy. This is the single most common reason setup
+fails here - it caught us four times - which is why `PATCH /slack/credentials` refuses a token
+missing the three scopes the platform itself needs, naming what was granted, rather than storing it
+and reporting "live".
+
 ### Naming the bot
 
 The handle people type after `@` defaults to the agent's name but is **separately settable**
