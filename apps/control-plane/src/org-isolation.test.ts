@@ -59,6 +59,10 @@ const SHARED = {
   invokeUrl: "http://x/agents/agent-shared/invoke",
   apiKeyHash: "hash",
   apiKey: "ag_plaintext_for_tests_000000",
+  // Present so the unconditional strip in `toPublic` is actually exercised. Without these on a
+  // fixture that reaches a read route, deleting that strip leaks a live bot token + signing secret
+  // and the whole suite still passes - which was true until this fixture carried them.
+  slackSecrets: { botToken: "bot-token-for-tests-000000", signingSecret: "0123456789abcdef0123456789abcdef" },
   createdAt: "2026-01-01T00:00:00Z",
   updatedAt: "2026-01-01T00:00:00Z",
   metrics: { invocations: 0, lastInvokedAt: null },
@@ -253,12 +257,42 @@ describe("who may read the plaintext API key", () => {
   });
 
 
-  it("never serves the key HASH either", async () => {
-    caller = { userId: "alice", orgId: "org-A", role: "admin" };
+  /**
+   * The fields `toPublic` strips UNCONDITIONALLY - for a writer as much as a viewer, on the detail
+   * route as much as the list.
+   *
+   * `slackSecrets` is the one that matters most and had no coverage at all: it holds the bot token
+   * and the signing secret, and the signing secret is the ENTIRE boundary on the public webhook, so
+   * serving it to a viewer of a shared agent turns that webhook into an open invoke. Unlike
+   * `apiKey` it has no DX exception - it is write-only by design. Deleting the strip used to pass
+   * all 899 tests, because no fixture that reached a read route carried the field.
+   *
+   * `apiKeyHash` is stripped for the same reason a hash is never published: it invites offline
+   * cracking, and no reader has a use for it.
+   */
+  it.each(["alice", "viewer"])("never serves slackSecrets or the key hash, even to %s", async (userId) => {
+    caller = { userId, orgId: "org-A", role: userId === "alice" ? "admin" : "viewer" };
+
     const { agent } = (await (await req("GET", "/agents/agent-shared")).json()) as {
       agent: Record<string, unknown>;
     };
+    expect(agent.slackSecrets).toBeUndefined();
     expect(agent.apiKeyHash).toBeUndefined();
+
+    // The list route maps over many records and is the easy one to forget.
+    const list = (await (await req("GET", "/agents")).json()) as { agents: Record<string, unknown>[] };
+    expect(list.agents.length).toBeGreaterThan(0);
+    for (const a of list.agents) {
+      expect(a.slackSecrets).toBeUndefined();
+      expect(a.apiKeyHash).toBeUndefined();
+    }
+
+    // Belt and braces: no serialized response may contain the secret ANYWHERE, whatever key it
+    // might be nested under - a future field carrying the record wholesale would slip past the
+    // property checks above.
+    const raw = await (await req("GET", "/agents/agent-shared")).text();
+    expect(raw).not.toContain("0123456789abcdef0123456789abcdef");
+    expect(raw).not.toContain("bot-token-for-tests-000000");
   });
 
   // config.env holds per-agent third-party secrets, so the VALUES are redacted for a

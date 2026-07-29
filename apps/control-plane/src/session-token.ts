@@ -10,8 +10,10 @@
  *  - ingest: the posted body's agentId/sessionId must equal the token's.
  *  - proxy:  the same, plus the requested integrationId must be in the token's grant.
  *            The proxy resolves the (org-scoped) integration record using the
- *            token's orgId, so it needs NO agents-table read - the ingest Lambda
- *            stays minimally-privileged (integrations read only, no agents access).
+ *            token's orgId, so the INTEGRATIONS path needs no agents-table read.
+ *            (The Slack proxy does read agents - it needs the bot token and the
+ *            channel allowlist - so IngestFn holds agents-table READ. That is the
+ *            widest grant it has; see docs/control-plane.md.)
  *
  * So a token that leaks out of the runtime (e.g. via `run_bash` reading
  * /proc/<pid>/environ) only acts as the session the agent already IS, and only on

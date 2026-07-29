@@ -1126,6 +1126,13 @@ function buildSchemas() {
       description: { type: "string", description: "Non-versioned roster label." },
       version: { type: "integer", description: "Current config version (latest is live)." },
       invokeUrl: { type: "string", description: "The URL clients POST to in order to trigger this agent." },
+      apiKey: {
+        type: "string",
+        description:
+          "The agent's API key, in plaintext. Present ONLY for a caller who can write the agent " +
+          "(creator/admin/manager) - omitted entirely for a viewer or a co-member of a shared " +
+          "agent, so treat it as optional. It authorizes invoke + poll on this one agent.",
+      },
       createdAt: { type: "string", format: "date-time" },
       updatedAt: { type: "string", format: "date-time" },
       metrics: ref("AgentMetrics"),
@@ -1436,7 +1443,12 @@ function buildSchemas() {
     type: "object",
     properties: {
       agent: ref("Agent"),
-      apiKey: { type: "string", description: "The agent's API key. Returned once; never retrievable again." },
+      apiKey: {
+        type: "string",
+        description:
+          "The agent's API key. Also stored, and returned on later reads to any caller who can " +
+          "write the agent (see Agent.apiKey), so the console can prefill it.",
+      },
     },
     required: ["agent", "apiKey"],
   },

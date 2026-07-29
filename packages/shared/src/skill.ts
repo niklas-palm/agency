@@ -191,7 +191,8 @@ curl -sX POST "$BASE/agents" \\
     "networkAccess": true
   }'
 # → { "agent": { "id": "…", "invokeUrl": "…", … }, "apiKey": "ag_…" }
-# Save apiKey - it is shown ONCE and authenticates this agent's invoke/poll.
+# apiKey authenticates this agent's invoke/poll. GET /agents/:id returns it again for a
+# caller who can WRITE the agent, so it is recoverable - a viewer never sees it.
 \`\`\`
 
 Requires scope \`write\`.

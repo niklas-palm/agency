@@ -122,7 +122,10 @@ two as prerequisites, not footnotes.
   *output*. Reasoning in [docs/metrics.md](docs/metrics.md).
 - **A Slack-triggered agent can be directed by anyone who can invite its bot.** The channel
   allowlist is the control: the agent answers only in channels its owner listed, and an empty
-  list means nowhere. But *within* an allowed channel, any member can @-mention the agent and
+  list means nowhere - **unless** the owner opts into `allChannels`, which answers in every
+  channel the bot is invited to and makes an empty list mean *everywhere* instead. That opt-in
+  hands the gate to whoever can `/invite`, which is the right trade for a private workspace and
+  the wrong one for an agent holding powerful integrations. But *within* an allowed channel, any member can @-mention the agent and
   have it run with the agent's full toolset - including `run_bash` and its integrations. That is
   the feature, and it is why the setup UI states it plainly rather than burying it: treat an
   allowed channel as equivalent to handing its members the agent's API key. A Slack agent that

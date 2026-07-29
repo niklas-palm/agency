@@ -191,7 +191,11 @@ scope-gated - the token is the credential.
 In prod these are reached over a small public HTTP API (public runtime) or a VPC-private REST
 API via PrivateLink (isolated runtime). The verifying Lambda (`IngestFn`) holds the two
 telemetry table writes, **read** on the trajectory table (to pull a run's events for the
-archive), **PUT-only** on the traces bucket, and **read-only** on the integrations table.
+archive), **PUT-only** on the traces bucket, **read-only** on the integrations table, and
+**read-only** on the agents table - that last one added for the Slack proxy, which resolves the
+bot token and re-checks the channel allowlist per call. It is the widest of these grants (an agent
+record carries `slackSecrets` and the plaintext `apiKey`), so it is called out rather than left
+implied; see docs/triggers.md for why the alternative drops the allowlist re-check.
 
 ## Error responses
 

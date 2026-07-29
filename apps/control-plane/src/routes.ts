@@ -950,7 +950,7 @@ export function buildRoutes(deps: Deps): Hono<Env> {
       current = await applyNewVersion(deps, current, merged);
     }
 
-    return c.json({ agent: toPublic(current) });
+    return c.json({ agent: publicAgentFor(c.var.principal, current) });
   });
 
   // List an agent's config versions (newest first). Org-scoped + visibility via the agent.
@@ -982,7 +982,7 @@ export function buildRoutes(deps: Deps): Hono<Env> {
     const source = versions.find((v) => v.version === target);
     if (!source) return c.json({ error: "version not found" }, 404);
     const updated = await applyNewVersion(deps, agent, source.config, `restored from v${target}`);
-    return c.json({ agent: toPublic(updated) });
+    return c.json({ agent: publicAgentFor(c.var.principal, updated) });
   });
 
   // Past runs, newest first - the durable run history behind the Monitor tab's run

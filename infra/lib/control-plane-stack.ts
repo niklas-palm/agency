@@ -205,10 +205,21 @@ export class ControlPlaneStack extends Stack {
         API_SCOPE: "agency/api",
       },
     });
-    // Trajectory: WRITE for the event stream, and READ so the session-summary handler
-    // can pull the run's events back out to archive them.
-    props.trajectoryTable.grantReadWriteData(ingestFn);
-    props.sessionsTable.grantWriteData(ingestFn);
+    // Trajectory + sessions: exactly PutItem and Query, spelled out rather than taken from
+    // grantReadWriteData/grantWriteData. Those helpers also hand over DeleteItem and
+    // BatchWriteItem, which nothing here calls (`recordEvent` appends, `writeSummary`
+    // overwrites one row, `readEvents` queries) - and a DeleteItem IngestFn doesn't need is a
+    // way for a leaked session token to ERASE its tenant's trajectory, which is the one thing
+    // an audit trail exists to prevent. Query is needed on trajectory so the session-summary
+    // handler can pull a run's events back out to archive them.
+    for (const table of [props.trajectoryTable, props.sessionsTable]) {
+      ingestFn.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ["dynamodb:PutItem", "dynamodb:Query"],
+          resources: [table.tableArn],
+        }),
+      );
+    }
     // Archive only - PUT, never delete. IngestFn re-writes a run's object at each idle
     // point (events are append-only, so each write is a superset). Nothing expires a trace
     // either: the bucket has no lifecycle rule, by design (see data-stack.ts).

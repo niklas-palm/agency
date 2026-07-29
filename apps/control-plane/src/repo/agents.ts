@@ -97,9 +97,15 @@ export function normalizeConfig(config: AgentConfig): AgentConfig {
 /**
  * Strip internal fields and normalize the config to produce the public wire type.
  *
- * The key hash is dropped, and the plaintext key isn't here to drop: it's returned
- * exactly once at create/rotate and never stored. So the agents table holds no usable
- * credential - a table read (a PITR export, an over-broad grant) yields hashes only.
+ * The key HASH is dropped - no reader needs it. The plaintext key deliberately SURVIVES, because
+ * the console prefills it; `publicAgentFor` is what drops it for a caller who can't write the
+ * agent, so this function alone is not the gate. Never use it directly on a read path.
+ *
+ * The cost of that trade is real and stated in SECURITY.md: a read of the agents table (a PITR
+ * export, an over-broad IAM grant) yields live invoke keys, not just hashes.
+ *
+ * Exactly one caller may use this directly: agent CREATE, where returning the key is the point.
+ * Everything else goes through `publicAgentFor`.
  */
 export function toPublic(r: AgentRecord): Agent {
   // Both stripped fields must never reach a read response: the API key HASH (no reader needs it,
