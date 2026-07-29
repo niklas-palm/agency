@@ -217,6 +217,32 @@ export async function slackChannelList(
   return { channels, truncated: Boolean(body.response_metadata?.next_cursor) };
 }
 
+/**
+ * Scopes without which the feature is broken rather than degraded.
+ *
+ * `app_mentions:read` is the load-bearing one: Slack will not DELIVER `app_mention` without it, so
+ * the agent is unreachable and nothing is logged anywhere - the webhook is never called. The other
+ * two are what the platform itself does on every run (👀 + status circles, and posting the answer),
+ * so an agent missing them looks connected and produces silence.
+ *
+ * Everything else degrades honestly: no `*:history` means `slack_read_thread` fails with a hint the
+ * agent can relay, no `files:*` means uploads fail the same way. Those we let through.
+ */
+const REQUIRED_SCOPES = ["app_mentions:read", "chat:write", "reactions:write"] as const;
+
+/**
+ * Which required scopes are missing from what Slack actually granted.
+ *
+ * This exists because the whole class of failure in this feature has been "the manifest was right,
+ * the token wasn't". A token predating a manifest change, or pasted from an older app of the same
+ * name, carries the OLD scopes - and Slack neither warns nor errors. We asked `auth.test` what was
+ * granted, stored it, showed it in the UI, and then made no decision with it, so setup reported
+ * "live" for an agent that could never receive a mention.
+ */
+export function missingRequiredScopes(granted: string[]): string[] {
+  return REQUIRED_SCOPES.filter((s) => !granted.includes(s));
+}
+
 /** Apply verified workspace details to the Slack trigger, leaving other triggers untouched. */
 export function withSlackVerification(
   trigger: SlackTrigger,

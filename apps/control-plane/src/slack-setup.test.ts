@@ -1,6 +1,12 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import type { AgentConfig } from "@agency/shared";
-import { slackAuthTest, slackChannelInfo, slackSetupState, withSlackVerification } from "./slack-setup.js";
+import {
+  missingRequiredScopes,
+  slackAuthTest,
+  slackChannelInfo,
+  slackSetupState,
+  withSlackVerification,
+} from "./slack-setup.js";
 
 /**
  * Obviously-synthetic stand-ins. Nothing validates a token's FORMAT, so these carry no
@@ -249,5 +255,57 @@ describe("toggling allChannels off", () => {
     }
   });
 });
+
+/**
+ * The check that would have prevented every round of this feature's silence.
+ *
+ * Pattern across all of them: the manifest was right, the TOKEN wasn't - because Slack grants what
+ * the app had at INSTALL time, and neither warns nor errors when that's less than the manifest
+ * asked for. We read `auth.test`'s granted list, stored it, displayed it, and made no decision with
+ * it, so setup reported "live" for an agent Slack would never deliver a mention to.
+ */
+describe("missingRequiredScopes", () => {
+  const FULL = [
+    "app_mentions:read", "channels:history", "groups:history", "channels:read",
+    "groups:read", "chat:write", "reactions:write", "files:read", "files:write", "users:read",
+  ];
+
+  it("passes a token granted the full set", () => {
+    expect(missingRequiredScopes(FULL)).toEqual([]);
+  });
+
+  /** The exact token that reached "live" and produced silence, twice. */
+  it("catches the 2-scope token that shipped as live", () => {
+    expect(missingRequiredScopes(["channels:history", "chat:write"])).toEqual([
+      "app_mentions:read",
+      "reactions:write",
+    ]);
+  });
+
+  it("treats app_mentions:read as required - Slack won't DELIVER without it", () => {
+    expect(missingRequiredScopes(FULL.filter((s) => s !== "app_mentions:read"))).toContain(
+      "app_mentions:read",
+    );
+  });
+
+  it("requires what the PLATFORM does on every run, not just what the agent might call", () => {
+    // chat:write posts the answer; reactions:write is 👀 and the status circles. Both are the
+    // platform's own behaviour, so missing them means silence rather than a degraded tool.
+    expect(missingRequiredScopes(FULL.filter((s) => s !== "chat:write"))).toContain("chat:write");
+    expect(missingRequiredScopes(FULL.filter((s) => s !== "reactions:write"))).toContain("reactions:write");
+  });
+
+  /** Optional scopes degrade honestly - the tool fails with a hint - so they must NOT block setup. */
+  it("does not require the scopes whose absence only degrades a tool", () => {
+    for (const optional of ["channels:history", "groups:history", "files:read", "files:write", "users:read"]) {
+      expect(missingRequiredScopes(FULL.filter((s) => s !== optional)), optional).toEqual([]);
+    }
+  });
+
+  it("reports everything missing at once, so one reinstall fixes it all", () => {
+    expect(missingRequiredScopes([])).toEqual(["app_mentions:read", "chat:write", "reactions:write"]);
+  });
+});
+
 
 

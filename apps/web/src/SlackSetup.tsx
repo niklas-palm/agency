@@ -614,6 +614,24 @@ function LivePanel({
 
   return (
     <div className="space-y-3">
+      {setup.missingScopes?.length ? (
+        <div className="rounded-lg border border-danger/40 bg-surface p-4">
+          <div className="text-sm font-medium text-danger">
+            This app can't answer - {setup.missingScopes.join(", ")} {setup.missingScopes.length === 1 ? "is" : "are"} missing
+          </div>
+          <p className="mt-2 text-xs text-muted">
+            Slack grants whatever scopes the app had when it was <strong className="text-ink">installed</strong>,
+            so a token from an older app - or one installed before the permissions changed - carries
+            the old set.{" "}
+            {setup.missingScopes.includes("app_mentions:read") &&
+              "Without app_mentions:read Slack never delivers a mention at all, which is why nothing happens and there's nothing in any log. "}
+            Reinstall the app (<strong className="text-ink">OAuth &amp; Permissions → Reinstall</strong>),
+            then paste the new token below. If you have several apps of the same name, take the token
+            from the one whose Request URL matches this agent.
+          </p>
+        </div>
+      ) : null}
+
       <div className="rounded-lg border border-pine/40 bg-surface p-4">
         <div className="flex items-center gap-2">
           <Check className="h-4 w-4 text-pine-deep" />

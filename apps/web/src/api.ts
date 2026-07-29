@@ -160,6 +160,8 @@ export interface SlackSetup {
   teamName?: string;
   botUserId?: string;
   grantedScopes?: string[];
+  /** Required scopes Slack did NOT grant. Non-empty means the agent cannot work. */
+  missingScopes?: string[];
   urlVerified: boolean;
   channels: string[];
   allChannels: boolean;

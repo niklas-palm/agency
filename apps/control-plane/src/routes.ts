@@ -69,6 +69,7 @@ import {
   slackAuthTest,
   slackChannelInfo,
   slackChannelList,
+  missingRequiredScopes,
   withSlackVerification,
 } from "./slack-setup.js";
 import { slackManifest, slackNameProblem, slackRequestUrl, SLACK_BOT_SCOPES, slackOf, type SlackTrigger } from "@agency/shared";
@@ -1971,6 +1972,9 @@ export function buildRoutes(deps: Deps): Hono<Env> {
       teamName: trigger.teamName,
       botUserId: trigger.botUserId,
       grantedScopes: trigger.grantedScopes,
+      // Surfaced so an ALREADY-connected agent in this state is told why it's silent. Without it
+      // the panel says "live" and the only symptom is a mention that does nothing.
+      missingScopes: trigger.grantedScopes ? missingRequiredScopes(trigger.grantedScopes) : [],
       urlVerified: Boolean(trigger.urlVerified),
       channels: trigger.channels,
       allChannels: Boolean(trigger.allChannels),
@@ -2000,6 +2004,26 @@ export function buildRoutes(deps: Deps): Hono<Env> {
     // connected. This is also where we learn teamId/botUserId, which routing needs.
     const verified = await slackAuthTest(botToken);
     if (!verified.ok) return c.json({ error: verified.error, hint: verified.hint }, 400);
+
+    // REFUSE a token that can't do the job, rather than storing it and reporting "live". Slack
+    // neither warns nor errors when a token carries fewer scopes than the manifest asked for -
+    // which happens whenever a token predates a manifest change or comes from an older app of the
+    // same name - and without `app_mentions:read` Slack never delivers a mention at all, so the
+    // failure is total and invisible: no webhook call, no log line, nothing to debug.
+    const missing = missingRequiredScopes(verified.grantedScopes);
+    if (missing.length) {
+      return c.json(
+        {
+          error: `this token is missing ${missing.join(", ")}`,
+          hint:
+            "Slack grants the scopes the app had when it was INSTALLED, so an older app or an " +
+            "un-reinstalled one carries the old set. Reinstall the app from the current manifest " +
+            "(OAuth & Permissions → Reinstall), then paste the new token. Granted: " +
+            (verified.grantedScopes.join(", ") || "none"),
+        },
+        400,
+      );
+    }
 
     const triggers = record.config.triggers.map((t) =>
       t.type === "slack" ? withSlackVerification(t, verified) : t,
