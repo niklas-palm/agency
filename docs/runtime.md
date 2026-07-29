@@ -159,3 +159,14 @@ cap lands at a turn boundary, `agent.messages` stays reinvokable - the session c
 cursor (preserving write order) and POSTs it to the ingest API; the control-plane persists it
 as a DynamoDB item keyed by (sessionId, cursor). This is the single source of truth the poll
 API reads from.
+
+A `tool_input`'s `toolName` is the tool the model called, with one exception: an integration
+call is recorded as **`call_integration:<integration name>`** (`integrationCallLabel` in
+`integration-tools.ts`, applied where `run.ts` both records the event and counts it for
+metrics, so the trace and the Monitor tab can't spell one call two ways). Without the label
+the only clue to WHICH downstream API ran is the opaque `integrationId` uuid in the args, and
+every integration shares one bar in the tool breakdown. The name is resolved from the
+manifest that rode the invoke payload, at record time - the one moment it's known for certain,
+since traces are kept forever and an integration can later be renamed or deleted. An id the
+manifest doesn't know keeps the bare tool name (the call fails anyway, and a label built from
+model-supplied input is how a hallucinated id would become a metric key of its own).

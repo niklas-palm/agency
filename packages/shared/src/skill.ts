@@ -299,7 +299,9 @@ curl -s "$BASE/agents/<AGENT_ID>/metrics?hours=24" -H "Authorization: Bearer $PA
 \`\`\`
 
 A "session" counts one runtime lifetime (a microVM lives up to 8h across many
-triggers), not each invoke.
+triggers), not each invoke. \`toolBreakdown\` keys are tool names, except an
+integration call, which is counted under \`call_integration:<integration name>\` -
+so the breakdown says which downstream APIs the agent used.
 
 ### Past runs (inspect a finished run)
 

@@ -139,6 +139,39 @@ describe("runAgentTurn (the turn loop)", () => {
     expect(record).toHaveBeenNthCalledWith(2, "sess-1", "agent-1", "tool_input", { toolName: "run_bash", toolUseId: "t1", input: { command: "ls" } });
   });
 
+  it("records an integration call under the integration's name, in the trajectory AND the tool counts", async () => {
+    // Both surfaces must agree: the trace row and the Monitor tool breakdown are the
+    // same string, or one integration reads as two different tools a tab apart.
+    const agent = fakeAgent([
+      {
+        type: "modelMessageEvent",
+        message: {
+          content: [
+            {
+              type: "toolUseBlock",
+              name: "call_integration",
+              toolUseId: "t1",
+              input: { integrationId: "int-pet", operationId: "listPets" },
+            },
+          ],
+        },
+      },
+    ]);
+
+    const result = await runAgentTurn(agent, "sess-1", "agent-1", "go", "run-1", [
+      { id: "int-pet", name: "Petstore", description: "", operations: [] },
+    ]);
+
+    expect(result.toolCalls).toEqual([{ name: "call_integration:Petstore" }]);
+    expect(record).toHaveBeenCalledWith("sess-1", "agent-1", "tool_input", {
+      runId: "run-1",
+      toolName: "call_integration:Petstore",
+      toolUseId: "t1",
+      // The input is recorded verbatim - the label is derived, never written back into args.
+      input: { integrationId: "int-pet", operationId: "listPets" },
+    });
+  });
+
   it("returns zeroed usage when the agent reports no accumulated usage", async () => {
     const agent = fakeAgent([{ type: "modelMessageEvent", message: { content: [{ type: "textBlock", text: "hi" }] } }]);
     const result = await runAgentTurn(agent, "s", "a", "p");

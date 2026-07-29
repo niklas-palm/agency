@@ -135,9 +135,11 @@ async function integrationRoundTrip(): Promise<void> {
   }
 
   // 5. Assert the agent reached the API through the proxy and saw real downstream data.
+  // The tool use is recorded under the integration's NAME, not the bare tool name, so the
+  // Monitor tab's tool breakdown can say WHICH downstream API a run called.
   assert(
-    seen.some((e) => e.type === "tool_input" && e.toolName === "call_integration"),
-    "trajectory records a call_integration tool use",
+    seen.some((e) => e.type === "tool_input" && e.toolName === `call_integration:${integration.name}`),
+    "trajectory records the call_integration tool use under the integration's name",
   );
   const finalText = seen.filter((e) => e.type === "session_end").pop()?.content ?? "";
   const transcript = seen.map((e) => e.content ?? "").join("\n");
@@ -311,9 +313,11 @@ async function dataToDiskRoundTrip(): Promise<void> {
   // it back via run_bash. Assert both tools ran and the final answer reflects a count
   // COMPUTED from the file (the body was persisted, never returned inline - so the agent
   // could only produce dog/cat numbers by reading the file it wrote and processing it).
-  const calledIntegration = seen.some((e) => e.type === "tool_input" && e.toolName === "call_integration");
+  const calledIntegration = seen.some(
+    (e) => e.type === "tool_input" && e.toolName === `call_integration:${integration.name}`,
+  );
   const ranBash = seen.some((e) => e.type === "tool_input" && e.toolName === "run_bash");
-  assert(calledIntegration, "trajectory records a call_integration tool use");
+  assert(calledIntegration, "trajectory records the call_integration tool use under the integration's name");
   assert(ranBash, "trajectory records a run_bash tool use (processing the file)");
   const finalText = seen.filter((e) => e.type === "session_end").pop()?.content ?? "";
   console.log(`\n📝 data-to-disk final answer:\n${finalText}\n`);

@@ -205,7 +205,7 @@ async function startTurn(
     // still recorded as `injected` events by the onInjected hook above.
     let next: string | undefined = prompt;
     for (;;) {
-      const turn = await runAgentTurn(agent, sessionId, agentId, next, metrics?.runId);
+      const turn = await runAgentTurn(agent, sessionId, agentId, next, metrics?.runId, integrations);
       if (metrics) accumulateTurn(metrics, turn); // fold this turn's counts
       // A per-turn budget trip ends the run as an ERROR, not a blank success: the
       // SDK returns a `limit*`/`cancelled` stop reason instead of throwing, so
