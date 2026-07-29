@@ -4,8 +4,9 @@
  * the trajectory table so clients can poll progress. Returns the final answer.
  */
 import type { Agent } from "@strands-agents/sdk";
-import type { TrajectoryEventType, TokenUsage } from "@agency/shared";
+import type { TrajectoryEventType, TokenUsage, ResolvedIntegration } from "@agency/shared";
 import { record, type EventFields } from "./trajectory.js";
+import { integrationCallLabel } from "./integration-tools.js";
 import {
   MAX_TURNS_PER_INVOCATION,
   MAX_TOKENS_PER_INVOCATION,
@@ -75,6 +76,7 @@ export function parseStreamEvent(ev: unknown): ParsedEvent[] {
 /** The outcome of one turn: the final answer plus the tool calls it made (for metrics). */
 export interface TurnResult {
   finalText: string;
+  /** One entry per tool call, named as the trajectory records it (see `integrationCallLabel`). */
   toolCalls: Array<{ name: string }>;
   /**
    * The Agent's CUMULATIVE token usage after this turn. Strands' Meter is
@@ -134,6 +136,11 @@ export async function runAgentTurn(
   prompt: string,
   /** The run these events belong to - see EventFields.runId. */
   runId?: string,
+  /**
+   * This agent's resolved integrations, used only to name an integration call after the
+   * API it called (`integrationCallLabel`). Empty for an agent with none.
+   */
+  integrations: ResolvedIntegration[] = [],
 ): Promise<TurnResult> {
   let finalText = "";
   let stopReason: string | undefined;
@@ -157,11 +164,18 @@ export async function runAgentTurn(
       stopReason = done.result.stopReason;
     }
     for (const parsed of parseStreamEvent(ev)) {
-      await record(sessionId, agentId, parsed.type, { runId, ...parsed.fields });
-      if (parsed.type === "text" && parsed.fields.content) {
-        finalText = parsed.fields.content; // last assistant text is the answer
-      } else if (parsed.type === "tool_input" && parsed.fields.toolName) {
-        toolCalls.push({ name: parsed.fields.toolName });
+      // One naming decision for both surfaces: the trajectory event and the metric
+      // count get the SAME label, so a step in the trace and a series on the Monitor
+      // tab can't spell the same call two ways.
+      const fields =
+        parsed.type === "tool_input" && parsed.fields.toolName
+          ? { ...parsed.fields, toolName: integrationCallLabel(parsed.fields.toolName, parsed.fields.input, integrations) }
+          : parsed.fields;
+      await record(sessionId, agentId, parsed.type, { runId, ...fields });
+      if (parsed.type === "text" && fields.content) {
+        finalText = fields.content; // last assistant text is the answer
+      } else if (parsed.type === "tool_input" && fields.toolName) {
+        toolCalls.push({ name: fields.toolName });
       }
     }
   }

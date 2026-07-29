@@ -1382,7 +1382,9 @@ function buildSchemas() {
       toolBreakdown: {
         type: "object",
         additionalProperties: { type: "integer" },
-        description: "Tool call counts by tool name in this bucket.",
+        description:
+          "Tool call counts by tool name in this bucket. An integration call is counted under " +
+          "`call_integration:<integration name>`.",
       },
       durationMsTotal: { type: "integer", description: "Sum of per-invocation working durations in this bucket." },
       tokens: { type: "integer", description: "Total tokens (all four drivers) in this bucket." },
@@ -1409,7 +1411,13 @@ function buildSchemas() {
       p50DurationMs: { type: "integer" },
       p95DurationMs: { type: "integer" },
       p99DurationMs: { type: "integer" },
-      toolBreakdown: { type: "object", additionalProperties: { type: "integer" } },
+      toolBreakdown: {
+        type: "object",
+        additionalProperties: { type: "integer" },
+        description:
+          "Tool call counts by tool name over the window. An integration call is counted under " +
+          "`call_integration:<integration name>`, so each downstream API is its own key.",
+      },
       tokens: ref("TokenUsage"),
       totalTokens: { type: "integer", description: "Sum of the four token drivers over the window." },
       costUsd: { type: "number", description: "Total dollar cost over the window (per-model priced)." },
@@ -1614,7 +1622,12 @@ function buildSchemas() {
         type: "string",
         description: "The user's message on `prompt`, assistant text on `text`, or the final answer on `session_end`.",
       },
-      toolName: { type: "string" },
+      toolName: {
+        type: "string",
+        description:
+          "The tool called (on `tool_input`). An integration call reads as " +
+          "`call_integration:<integration name>`, so a trace names the downstream API it used.",
+      },
       toolUseId: { type: "string" },
       input: { description: "Tool input args (on `tool_input`)." },
       result: { type: "string", description: "Tool result, truncated (on `tool_result`)." },

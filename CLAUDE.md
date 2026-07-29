@@ -278,7 +278,12 @@ microVM lifetime (invocations, turns, tool uses + breakdown, injections, duratio
 token usage + model) and OVERWRITES
 one summary row (keyed by agentId+runId) at each idle point - so a session's many triggers
 stay one row, and a reused sessionId on a fresh microVM starts a new row (counts runtime
-lifetimes, never double-counts). Token usage is read from the Strands Agent's cumulative
+lifetimes, never double-counts). The breakdown is keyed by the tool name the trajectory
+recorded, and an integration call is recorded as `call_integration:<integration name>`
+(`integrationCallLabel`, resolved from the payload manifest at record time) - so the Monitor
+tab and the trace both name WHICH downstream API ran, instead of collapsing every integration
+into one `call_integration` bar behind an opaque uuid in the args. Token usage is read from
+the Strands Agent's cumulative
 accumulator (`agent.metrics.accumulatedUsage`) - stored as the latest snapshot, never summed
 (the Meter isn't reset per turn). `GET /agents/:id/metrics?hours=&version=` aggregates these
 into a time-bucketed dashboard (hourly buckets up to 7 days, daily beyond; across all versions,

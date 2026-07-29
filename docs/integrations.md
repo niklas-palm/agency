@@ -204,6 +204,15 @@ body as data). The path is confined to the workspace by the same `sandboxed()` g
 call, and a proxy error never writes a file. Paging + `outputPath` compose: one file per page
 (`data/page-1.json`, …), then one `run_bash` pass over all of them.
 
+**Observability.** A call is recorded on the trajectory (and counted in the session's tool
+breakdown) as `call_integration:<integration name>` rather than the bare tool name, so the
+Monitor tab answers "which downstream APIs does this agent actually call?" and a trace read
+months later still names the API instead of an opaque uuid. The label is resolved from the
+payload manifest at record time by `integrationCallLabel`; the granularity is deliberately the
+integration, not the operation - a discovered spec can carry dozens of operations, and one
+series per operation would swamp the chart. The operation stays in the event's `input`, which
+is recorded verbatim. See docs/runtime.md + docs/metrics.md.
+
 Authentication reuses the **per-session capability token** already minted for telemetry
 ingest (no second mechanism): the token is scoped to `(orgId, agentCreatedBy, agentId,
 sessionId)` and carries the granted `integrationIds`, sent as the `X-Agency-Ingest-Token`

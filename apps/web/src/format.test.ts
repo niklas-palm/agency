@@ -12,6 +12,7 @@
 import { describe, it, expect } from "vitest";
 import { fmtDuration } from "./views/Monitor.js";
 import { elapsed } from "./Trace.js";
+import { prettyTool } from "./components.js";
 
 describe("fmtDuration", () => {
   it("never renders 60 seconds - it carries into the minute", () => {
@@ -63,5 +64,23 @@ describe("elapsed", () => {
   it("reads an unparseable timestamp as zero, not NaN", () => {
     expect(elapsed("not-a-date", t0)).toBe("00:00.0");
     expect(elapsed("", t0)).toBe("00:00.0");
+  });
+});
+
+describe("prettyTool", () => {
+  it("shows an integration call as the API it called", () => {
+    expect(prettyTool("call_integration:Pet Store")).toBe("Pet Store");
+  });
+
+  it("leaves an integration name untouched", () => {
+    // Underscores/hyphens are un-snaked for TOOL names, and "___" strips an MCP
+    // namespace - neither may mangle a user-chosen integration name.
+    expect(prettyTool("call_integration:acme_billing-v2")).toBe("acme_billing-v2");
+    expect(prettyTool("call_integration:a___b")).toBe("a___b");
+  });
+
+  it("still un-snakes tools and drops an MCP namespace", () => {
+    expect(prettyTool("run_bash")).toBe("run bash");
+    expect(prettyTool("web-search___WebSearch")).toBe("web search");
   });
 });

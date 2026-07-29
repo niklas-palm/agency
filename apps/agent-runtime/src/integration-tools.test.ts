@@ -18,7 +18,7 @@ const WORK = mkdtempSync(join(tmpdir(), "agency-itool-"));
 process.env.WORK_ROOT = WORK;
 afterAll(() => rmSync(WORK, { recursive: true, force: true }));
 
-const { buildIntegrationTools } = await import("./integration-tools.js");
+const { buildIntegrationTools, integrationCallLabel } = await import("./integration-tools.js");
 
 const PETSTORE: ResolvedIntegration = {
   id: "int-pet",
@@ -213,5 +213,34 @@ describe("buildIntegrationTools", () => {
       expect(readFileSync(join(WORK, "pages/p2.json"), "utf8")).toBe("page-2");
       expect(readFileSync(join(WORK, "pages/p3.json"), "utf8")).toBe("page-3");
     });
+  });
+});
+
+describe("integrationCallLabel", () => {
+  it("names an integration call after the API it called", () => {
+    expect(integrationCallLabel("call_integration", { integrationId: "int-pet" }, [PETSTORE])).toBe(
+      "call_integration:Petstore",
+    );
+  });
+
+  it("leaves every other tool's name alone", () => {
+    expect(integrationCallLabel("run_bash", { command: "ls" }, [PETSTORE])).toBe("run_bash");
+    // The discovery tool takes no integrationId, so it must not be relabelled either.
+    expect(integrationCallLabel("list_integration_operations", {}, [PETSTORE])).toBe(
+      "list_integration_operations",
+    );
+  });
+
+  it("keeps the bare tool name when the id isn't in the manifest", () => {
+    // The name has to come from the server-resolved manifest: labelling from
+    // model-supplied input is how a hallucinated id becomes a metric key of its own.
+    expect(integrationCallLabel("call_integration", { integrationId: "int-nope" }, [PETSTORE])).toBe(
+      "call_integration",
+    );
+    expect(integrationCallLabel("call_integration", {}, [PETSTORE])).toBe("call_integration");
+    expect(integrationCallLabel("call_integration", { integrationId: 7 }, [PETSTORE])).toBe("call_integration");
+    expect(integrationCallLabel("call_integration", "not-an-object", [PETSTORE])).toBe("call_integration");
+    expect(integrationCallLabel("call_integration", null, [PETSTORE])).toBe("call_integration");
+    expect(integrationCallLabel("call_integration", { integrationId: "int-pet" }, [])).toBe("call_integration");
   });
 });

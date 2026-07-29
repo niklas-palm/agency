@@ -6,7 +6,7 @@
 import { useState, type ReactNode } from "react";
 import { ArrowLeft, Check, ChevronDown, Copy, Globe, Lock, ShieldCheck } from "lucide-react";
 import type { ModelFamily, ModelKey, PromptContext, TrajectoryEvent } from "@agency/shared";
-import { MODEL_INFO, MODEL_KEYS, composeSystemPrompt, isModelAllowedInNetworkMode } from "@agency/shared";
+import { MODEL_INFO, MODEL_KEYS, composeSystemPrompt, isModelAllowedInNetworkMode, INTEGRATION_CALL_TOOL } from "@agency/shared";
 
 /**
  * Palette as JS values, for dynamic per-datum coloring (trace rails, status
@@ -525,13 +525,17 @@ export function eventTint(type: TrajectoryEvent["type"]): string {
 }
 
 /**
- * Readable tool name: drop an MCP server namespace and un-snake the rest
- * (`web-search___WebSearch` → `web search`, `run_bash` → `run bash`).
+ * Readable tool name: an integration call reads as the API it called
+ * (`call_integration:Pet Store` → `Pet Store` - the trace row already says "call", and
+ * the chart legend has no room for a prefix), an MCP server namespace is dropped, and
+ * the rest is un-snaked (`web-search___WebSearch` → `web search`, `run_bash` → `run bash`).
  *
  * Shared by the trace viewer and the tool-usage charts - they render one tab apart, so
  * two spellings of the same tool would read as two different tools.
  */
 export function prettyTool(name: string): string {
+  const integrationPrefix = `${INTEGRATION_CALL_TOOL}:`;
+  if (name.startsWith(integrationPrefix)) return name.slice(integrationPrefix.length);
   const base = name.includes("___") ? name.split("___")[0]! : name;
   return base.replace(/[-_]/g, " ");
 }

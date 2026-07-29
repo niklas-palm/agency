@@ -648,7 +648,10 @@ export interface SessionSummary {
   toolUses: number;
   /**
    * Tool call counts by tool name, e.g. `{ run_bash: 3, web_search: 1 }`.
-   * Activating a skill counts here too (the AgentSkills `skills` tool).
+   * Activating a skill counts here too (the AgentSkills `skills` tool). An integration
+   * call is counted under `call_integration:<integration name>` - one key per downstream
+   * API rather than one for all of them (see docs/runtime.md); rows written before that
+   * labelling shipped carry the bare `call_integration` key.
    */
   toolBreakdown: Record<string, number>;
   /** Mid-turn messages injected into the session. */
@@ -829,6 +832,17 @@ export type IntegrationAuthKind = (typeof INTEGRATION_AUTH_KINDS)[number];
 /** HTTP methods an integration operation can use. */
 export const INTEGRATION_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
 export type IntegrationMethod = (typeof INTEGRATION_METHODS)[number];
+
+/**
+ * The runtime tool that invokes an integration operation.
+ *
+ * Shared because the name crosses the wire: the runtime records a call as
+ * `call_integration:<integration name>` on the trajectory event and in the session's
+ * tool breakdown (so metrics say WHICH downstream API ran, not just that one did), and
+ * the console splits that prefix back off to render the name. Two hardcoded copies
+ * would drift silently - the label would still look right, just never match.
+ */
+export const INTEGRATION_CALL_TOOL = "call_integration";
 
 /**
  * One declared operation of an integration - the unit the agent calls by id and
