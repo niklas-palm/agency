@@ -153,8 +153,8 @@ per account if it's absent.
 id from CloudFormation at deploy time. A repo variable would go stale when a stack is recreated
 and produce an SPA silently pointed at the wrong API.
 
-**The exception is the API URL when a custom domain is configured.** With `AGENCY_DOMAIN_NAME`
-set, the script derives `https://api.<domain>` instead of reading the output - because the host
+**The exception is the API URL when a custom domain is configured.** With `domainName` set in the
+CDK context, the script derives `https://api.<domain>` instead of reading the output - because the host
 is known by construction, and on the deploy that FIRST introduces the domain the deployed output
 still names the execute-api endpoint, so a bundle built from it would be stale the moment that
 deploy landed. The cost of the exception: a typo in that variable publishes a bundle aimed at a
@@ -225,36 +225,40 @@ What the deployment does with it:
 - The Cognito invite email's sign-in link defaults to `https://<domainName>/`, so
   `webCallbackUrl` becomes unnecessary (set it only to override).
 
-**The repo variables are the single source of truth**, and both deploy paths read them:
+**`infra/cdk.context.json` is the single source of truth.** It's gitignored, because the values in
+it are *your* deployment's identifiers - a fork that inherited a domain name and hosted-zone id
+would request an ACM certificate for a domain it doesn't control and hang on DNS validation for
+hours. It can't be committed for a practical reason rather than a secrecy one: the domain name is public
+DNS and the zone id isn't a credential, but a fork that inherited them would request a certificate
+for a domain it doesn't control and try to validate it in someone else's hosted zone - an IAM
+denial, or a CloudFormation hang that times out hours later with nothing useful in the error.
 
-```bash
-gh variable set AGENCY_DOMAIN_NAME    --body your.domain
-gh variable set AGENCY_HOSTED_ZONE_ID --body <its hosted zone id>
+There's no template file to copy: `infra/cdk.json` already documents every key in place, as
+`//`-prefixed entries. Create `infra/cdk.context.json` with the keys you need - all optional -
+and CDK picks it up automatically:
+
+```json
+{ "domainName": "agency.example.com", "hostedZoneId": "Z0000000000000EXAMPLE" }
 ```
 
-CI reads them from the workflow env; `npm run deploy` reads them with `gh variable get` and passes
-the same `-c` flags. **There is deliberately no local copy.** The pair used to live in a gitignored
-`infra/cdk.context.json` as well, which is two independent sources - and a deploy from a machine
-that never set it silently tore the live domain down (CDK reads only the context file). One source,
-nothing to sync.
+**CI materializes the same file** from one repo variable, because it can't read a gitignored path:
 
-They can't simply be committed: the pair is this deployment's identity, and a fork that inherited
-it would request an ACM certificate for a domain it doesn't control and then hang on DNS validation
-for hours.
+```bash
+gh variable set AGENCY_CDK_CONTEXT --body "$(cat infra/cdk.context.json)"
+```
 
-**The deploy also refuses to remove a domain by accident.**
-`.github/scripts/assert-domain-context.sh` (37 lines, run before `cdk deploy` on both paths) fails
-if a domain is deployed but none is configured for this run - the one case that is otherwise
-invisible. A half-set pair is already refused at synth by `resolveDomain`, and adding or changing a
-domain shows up in `cdk diff`; silently deleting one does not. `ALLOW_DOMAIN_REMOVAL=1` retires a
-domain deliberately.
+The workflow writes it back to `infra/cdk.context.json` before deploying and fails on malformed
+JSON (a truncated paste would otherwise deploy the defaults - which, for a deployment that already
+has a domain, means tearing it down). Writing the file rather than passing `-c` flags is
+deliberate: CI and a local deploy then consume the *same schema*, so there is no second code path
+that could disagree about a key. Re-run that command whenever you change the file.
 
 **CI needs the same pair as repo variables**, because CDK context is not tracked - a deploy from
 CI without them would remove the domain a local deploy had configured:
 
 ```bash
-gh variable set AGENCY_DOMAIN_NAME    --body agency.example.com
-gh variable set AGENCY_HOSTED_ZONE_ID --body <hosted zone id>
+# in infra/cdk.context.json (see "single source of truth" above), then:
+gh variable set AGENCY_CDK_CONTEXT --body "$(cat infra/cdk.context.json)"
 ```
 
 Setting only one half is refused at synth (`infra/lib/domain.ts`) rather than deploying half a

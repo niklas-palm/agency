@@ -48,14 +48,12 @@ env:
   # Set it once:  gh variable set AWS_DEPLOY_ROLE_ARN --body arn:aws:iam::<acct>:role/agency-github-deploy
   ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
   # The optional custom domain, repo variables for the same reason (a domain name and a
-  # hosted zone id are this deployment's identifiers). Both or neither; unset = serve on
-  # the CloudFront + execute-api hostnames. They must be set HERE as well as in a local
-  # infra/cdk.context.json: CDK context isn't tracked, so a CI deploy without them would
-  # tear a locally-configured custom domain back down.
-  #   gh variable set AGENCY_DOMAIN_NAME    --body agency.example.com
-  #   gh variable set AGENCY_HOSTED_ZONE_ID --body <hosted zone id of that domain>
-  AGENCY_DOMAIN_NAME: ${{ vars.AGENCY_DOMAIN_NAME }}
-  AGENCY_HOSTED_ZONE_ID: ${{ vars.AGENCY_HOSTED_ZONE_ID }}
+  # hosted zone id are this deployment's identifiers - a fork inheriting them would request a
+  # certificate for a domain it doesn't control). So the deployer's own infra/cdk.context.json
+  # is the single source of truth, and this variable holds a copy of that FILE for CI, which
+  # cannot read a gitignored path. One schema, one place to edit per environment.
+  #   gh variable set AGENCY_CDK_CONTEXT --body "$(cat infra/cdk.context.json)"
+  AGENCY_CDK_CONTEXT: ${{ vars.AGENCY_CDK_CONTEXT }}
 
 jobs:
   # Same gate as CI, re-run here: main can receive a direct push, and deploying code that
@@ -217,23 +215,24 @@ jobs:
       - name: Assert the bundle was built against the real API
         if: steps.out.outputs.web_client_id != '' && steps.out.outputs.api_url != ''
         run: bash .github/scripts/assert-bundle.sh '${{ steps.out.outputs.api_url }}'
-      # Refuse a deploy that would tear down a live custom domain. The values aren't tracked
-      # (they're this deployment's identity, and a fork inheriting them would hang on cert
-      # validation), so an unset variable is silence rather than intent - and only the deployed
-      # state can tell the two apart.
-      - name: Assert the domain config matches what's deployed
-        run: bash .github/scripts/assert-domain-context.sh
-      - name: cdk deploy --all
-        working-directory: infra
-        # The domain context is passed only when configured, so an unset variable deploys
-        # exactly what it does today. A half-set pair is refused at synth (see
-        # infra/lib/domain.ts) rather than deploying half a domain.
+      # CDK reads infra/cdk.context.json automatically, but it's gitignored (it holds this
+      # deployment's own identifiers), so CI materializes it from the variable. Writing the file
+      # rather than passing -c flags means CI and a local deploy consume the SAME schema - there
+      # is no second code path that could disagree about a key.
+      - name: Write the CDK context
         run: |
           set -euo pipefail
-          ctx=()
-          if [ -n "${AGENCY_DOMAIN_NAME:-}" ] || [ -n "${AGENCY_HOSTED_ZONE_ID:-}" ]; then
-            ctx=(-c "domainName=${AGENCY_DOMAIN_NAME:-}" -c "hostedZoneId=${AGENCY_HOSTED_ZONE_ID:-}")
+          if [ -n "${AGENCY_CDK_CONTEXT:-}" ]; then
+            printf '%s' "$AGENCY_CDK_CONTEXT" > infra/cdk.context.json
+            # Fail loudly on malformed JSON: a truncated paste would otherwise deploy the
+            # defaults, which for an existing deployment means tearing the domain down.
+            python3 -c "import json,sys; json.load(open('infra/cdk.context.json'))"
+            echo "wrote infra/cdk.context.json ($(wc -c < infra/cdk.context.json) bytes)"
+          else
+            echo "no AGENCY_CDK_CONTEXT set - deploying with cdk.json defaults"
           fi
-          npx cdk deploy --all --require-approval never --concurrency 4 "${ctx[@]}"
+      - name: cdk deploy --all
+        working-directory: infra
+        run: npx cdk deploy --all --require-approval never --concurrency 4
       - name: Smoke-test the deployment
         run: bash .github/scripts/smoke.sh

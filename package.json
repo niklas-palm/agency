@@ -17,8 +17,7 @@
     "up": "docker compose up --build",
     "down": "docker compose down -v",
     "e2e:local": "tsx scripts/e2e.ts",
-    "mint-token": "tsx scripts/mint-m2m-token.ts",
-    "deploy": "AGENCY_DOMAIN_NAME=$(gh variable get AGENCY_DOMAIN_NAME) AGENCY_HOSTED_ZONE_ID=$(gh variable get AGENCY_HOSTED_ZONE_ID) bash .github/scripts/deploy-local.sh"
+    "mint-token": "tsx scripts/mint-m2m-token.ts"
   },
   "devDependencies": {
     "tsx": "^4.19.2",

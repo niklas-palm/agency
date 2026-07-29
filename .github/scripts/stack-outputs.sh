@@ -28,13 +28,24 @@ DISTRIBUTION_ID=$(get AgencyWeb DistributionId)
 USER_POOL_ID=$(get AgencyAuth UserPoolId)
 WEB_CLIENT_ID=$(get AgencyAuth WebClientId)
 
-# With a custom domain configured (AGENCY_DOMAIN_NAME - see deploy.yml), the API host is
-# `api.<domain>` by construction, so prefer it over the output. On the deploy that FIRST
-# introduces the domain the deployed output still names the execute-api endpoint, and a
-# bundle built against that host would be stale the moment the deploy lands - smoke.sh
-# compares the served bundle against the post-deploy ApiUrl and would rightly fail it.
-if [ -n "${AGENCY_DOMAIN_NAME:-}" ]; then
-  API_URL="https://api.${AGENCY_DOMAIN_NAME}"
+# With a custom domain configured, the API host is `api.<domain>` by construction, so prefer it
+# over the output. On the deploy that FIRST introduces the domain the deployed output still names
+# the execute-api endpoint, and a bundle built against that host would be stale the moment the
+# deploy lands - smoke.sh compares the served bundle against the post-deploy ApiUrl and would
+# rightly fail it.
+#
+# The domain is read from infra/cdk.context.json, which is the single source of truth for
+# per-deployment config (CI materializes it from AGENCY_CDK_CONTEXT before this runs).
+CONTEXT_FILE="${CONTEXT_FILE:-infra/cdk.context.json}"
+if [ -f "$CONTEXT_FILE" ]; then
+  DOMAIN=$(python3 -c "
+import json,sys
+try:
+    print(json.load(open('$CONTEXT_FILE')).get('domainName') or '')
+except Exception:
+    print('')
+")
+  [ -n "$DOMAIN" ] && API_URL="https://api.${DOMAIN}"
 fi
 
 # The Cognito output keys have drifted before; fall back to a contains-match so a rename
