@@ -90,10 +90,6 @@ export interface SlackTrigger {
   /** Our bot's user id (`U…`), from `auth.test`. Used to drop the bot's own events (loop guard). */
   botUserId?: string;
   /**
-   * Channel ids (`C…`/`G…`) the agent will answer in. Empty = answer nowhere (fail closed),
-   * unless `allChannels` is set.
-   */
-  /**
    * What the bot is called in Slack, if it should differ from the agent's name.
    *
    * The agent's name is a sensible default but not the same thing: the agent name is for the
@@ -105,6 +101,10 @@ export interface SlackTrigger {
    * app-creation time, so editing this later only makes our manifest disagree with the live app.
    */
   botName?: string;
+  /**
+   * Channel ids (`C…`/`G…`) the agent will answer in. Empty = answer nowhere (fail closed),
+   * unless `allChannels` is set.
+   */
   channels: string[];
   /**
    * Answer in ANY channel the bot is invited to, ignoring `channels`.
@@ -207,14 +207,12 @@ export function scheduleOf(config: AgentConfig): ScheduleTrigger | undefined {
   return config.triggers.find((t): t is ScheduleTrigger => t.type === "schedule");
 }
 
-/** Operational counters surfaced on the agent list/detail. */
 /**
  * The counters kept ON the agent record. Deliberately minimal: only what the
  * invoke path can cheaply increment. Error counts, durations, token usage and
  * cost come from the per-session summaries instead (`GET /agents/:id/metrics`,
  * see MetricsSummary) - the runtime writes those, and they carry the version +
- * model context these flat counters never could. `errors`/`lastRuntimeMs` used to
- * live here but nothing ever wrote them, so they reported a permanent zero.
+ * model context these flat counters never could.
  */
 export interface AgentMetrics {
   invocations: number;

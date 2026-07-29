@@ -202,59 +202,7 @@ describe("withSlackVerification", () => {
     });
   });
 });
-/**
- * Channel-list edits, which is where a 409 stranded a real user.
- *
- * Validation exists to stop a FOREIGN channel id being saved (it produces an agent that looks
- * configured and ignores every mention). It must not therefore block a removal, or an agent whose
- * Slack connection has been reset can never have its list shortened - and re-validating already
- * approved ids costs a Slack round trip per channel on every save.
- */
-describe("which channel ids need validating", () => {
-  const stored = ["C0000000001", "C0000000002"];
 
-  it("treats only genuinely new ids as needing a Slack check", () => {
-    const requested = ["C0000000001", "C0000000009"];
-    expect(requested.filter((id) => !stored.includes(id))).toEqual(["C0000000009"]);
-  });
-
-  it("needs no check at all to REMOVE one", () => {
-    const requested = ["C0000000001"];
-    expect(requested.filter((id) => !stored.includes(id))).toEqual([]);
-  });
-
-  it("needs no check to clear the list entirely", () => {
-    expect([].filter((id) => !stored.includes(id))).toEqual([]);
-  });
-
-  it("re-ordering is not an addition", () => {
-    const requested = ["C0000000002", "C0000000001"];
-    expect(requested.filter((id) => !stored.includes(id))).toEqual([]);
-  });
-});
-
-/**
- * `allChannels` was write-once, and the shape of the bug is worth pinning: the route built the new
- * trigger with `{ ...t, ...(allChannels ? { allChannels: true } : {}) }`, so a `false` spread
- * NOTHING and the old `true` survived from `...t`. Clicking "restrict to a list" therefore did
- * nothing visible - while still minting a config version, which is how it was noticed.
- */
-describe("toggling allChannels off", () => {
-  const existing = { type: "slack" as const, channels: ["C1"], allChannels: true };
-
-  it("the conditional-spread form cannot turn it off (the bug)", () => {
-    const allChannels = false;
-    const broken = { ...existing, channels: ["C1"], ...(allChannels ? { allChannels: true } : {}) };
-    expect(broken.allChannels).toBe(true); // still on - the value survived from ...existing
-  });
-
-  it("setting it explicitly does (the fix)", () => {
-    for (const allChannels of [false, true]) {
-      const fixed = { ...existing, channels: ["C1"], allChannels };
-      expect(fixed.allChannels).toBe(allChannels);
-    }
-  });
-});
 
 /**
  * The check that would have prevented every round of this feature's silence.
@@ -307,42 +255,6 @@ describe("missingRequiredScopes", () => {
   });
 });
 
-/**
- * The two credential fields are adjacent, both masked, and both opaque blobs - so pasting the bot
- * token into BOTH is easy, and it was silent: the token stored fine, setup reported "live", and
- * every real mention 401'd on a signature that could never verify. Slack's own shapes distinguish
- * them, so there was no excuse for accepting it.
- */
-describe("credential shape validation", () => {
-  const isBotToken = (v: string) => v.startsWith("xoxb-");
-  const isSigningSecret = (v: string) => /^[0-9a-f]{32}$/.test(v);
-
-  // Assembled rather than written literally: a `xoxb-…`-shaped string in a fixture trips secret
-  // scanners, and a scanner that cries wolf on test data is one people learn to ignore.
-  const BOT = ["xoxb", "0".repeat(12), "0".repeat(12), "a".repeat(24)].join("-");
-  const USER = ["xoxp", "0".repeat(12), "0".repeat(12), "a".repeat(12)].join("-");
-
-  it("recognizes a real pair", () => {
-    expect(isBotToken(BOT)).toBe(true);
-    expect(isSigningSecret("0123456789abcdef0123456789abcdef")).toBe(true);
-  });
-
-  /** The exact mistake: the same xoxb- value in both fields. */
-  it("rejects a token pasted into the signing-secret field", () => {
-    expect(isSigningSecret(BOT)).toBe(false);
-    expect(BOT.startsWith("xox")).toBe(true); // caught by the token-shaped guard first
-  });
-
-  it("rejects a user token in the bot-token field", () => {
-    expect(isBotToken(USER)).toBe(false);
-  });
-
-  it("rejects a signing secret that isn't 32 hex chars", () => {
-    for (const bad of ["", "tooshort", "0123456789abcdef0123456789abcdeff", "0123456789ABCDEF0123456789abcdef"]) {
-      expect(isSigningSecret(bad), bad || "(empty)").toBe(false);
-    }
-  });
-});
 
 
 

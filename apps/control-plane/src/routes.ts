@@ -446,16 +446,6 @@ async function resolveOperations(
 }
 
 /**
- * Apply a new config to an agent as the next version: bump the version, append
- * the config to the version history, persist both on the agent, reconcile the
- * schedule. Shared by PATCH (edit) and restore. Returns the updated in-memory
- * record. Ownership is checked by the caller.
- *
- * Note: config takes effect on the next invoke because it rides the invoke
- * payload to the shared runtime - there is nothing to re-provision (the runtime
- * image + env are platform-owned, updated on deploy, not per agent).
- */
-/**
  * Update the Slack trigger WITHOUT minting a config version.
  *
  * Version history exists to answer "what did this agent do differently, and when?" - a prompt
@@ -479,6 +469,16 @@ async function updateSlackTrigger(
   });
 }
 
+/**
+ * Apply a new config to an agent as the next version: bump the version, append
+ * the config to the version history, persist both on the agent, reconcile the
+ * schedule. Shared by PATCH (edit) and restore. Returns the updated in-memory
+ * record. Ownership is checked by the caller.
+ *
+ * Note: config takes effect on the next invoke because it rides the invoke
+ * payload to the shared runtime - there is nothing to re-provision (the runtime
+ * image + env are platform-owned, updated on deploy, not per agent).
+ */
 async function applyNewVersion(
   deps: Deps,
   record: AgentRecord,
@@ -587,12 +587,6 @@ function isConditionalCheckFailed(e: unknown): boolean {
   return typeof e === "object" && e !== null && (e as { name?: string }).name === "ConditionalCheckFailedException";
 }
 
-/**
- * Resolve an agent by id + its API key (from the Authorization header) for the
- * invoke/poll endpoints. Returns null on either a missing agent OR a bad key -
- * the caller returns an identical 401 for both, so an unauthenticated caller
- * can't use the status code to tell which agent ids exist.
- */
 /**
  * The 401 for invoke/poll. Names BOTH causes because the check deliberately can't
  * distinguish them: pasting the docs' `AGENT_ID` placeholder and using another
@@ -2045,16 +2039,10 @@ export function buildRoutes(deps: Deps): Hono<Env> {
     const verified = await slackAuthTest(botToken);
     if (!verified.ok) return c.json({ error: verified.error, hint: verified.hint }, 400);
 
-    // REFUSE a token that can't do the job, rather than storing it and reporting "live". Slack
-    // neither warns nor errors when a token carries fewer scopes than the manifest asked for -
-    // which happens whenever a token predates a manifest change or comes from an older app of the
-    // same name - and without `app_mentions:read` Slack never delivers a mention at all, so the
-    // failure is total and invisible: no webhook call, no log line, nothing to debug.
-    // Catch a token from the WRONG APP. Slack has no "which app is this token for" field on
-    // auth.test's body, but `urlVerified` tells us OUR manifest's app completed the handshake with
-    // THIS agent - so a token whose scopes can't have come from our manifest is a token from a
-    // different app of the same name. This has now happened three times: several `know-it-*` apps
-    // in one workspace, and the tokens are indistinguishable by eye.
+    // Refuse a token that can't do the job rather than storing it and reporting "live". Slack grants
+    // what the app had at INSTALL time and neither warns nor errors when that's less than the
+    // manifest asked for; without `app_mentions:read` no mention is ever delivered, so the failure
+    // is total and leaves no log line anywhere. The hint below names both causes for the user.
     const missing = missingRequiredScopes(verified.grantedScopes);
     if (missing.length) {
       return c.json(
@@ -2072,14 +2060,11 @@ export function buildRoutes(deps: Deps): Hono<Env> {
       );
     }
 
-    const triggers = record.config.triggers.map((t) =>
-      t.type === "slack" ? withSlackVerification(t, verified) : t,
-    );
-    // The secrets are not versioned config - they're credentials, and a version snapshot is
-    // a full config copy that a reader can fetch. Store them on the record; bump the version
-    // for the TRIGGER change through the shared path, so connecting Slack shows in history.
+    // The secrets are credentials, not versioned config: a version snapshot is a full config copy
+    // any reader can fetch, so they live on the record instead. The trigger fields Slack just taught
+    // us (team, bot user, granted scopes) are connection details rather than behaviour, so neither
+    // write mints a version - see updateSlackTrigger.
     await updateAgent(record.id, { slackSecrets: { botToken, signingSecret } });
-    // Connection details, not behaviour - no version bump (see updateSlackTrigger).
     await updateSlackTrigger(record, withSlackVerification(trigger, verified));
     return c.json({
       teamId: verified.teamId,

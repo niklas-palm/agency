@@ -14,7 +14,7 @@
 import { tool } from "@strands-agents/sdk";
 import { z } from "zod";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { dirname } from "node:path";
 import { postIngestRaw } from "./ingest.js";
 import { workDir, sandboxed } from "./tools.js";
 

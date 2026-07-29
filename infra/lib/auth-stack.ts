@@ -30,23 +30,17 @@ export class AuthStack extends Stack {
   constructor(scope: Construct, id: string, props?: AuthStackProps) {
     super(scope, id, props);
 
-    // The web app origin (CloudFront). Its only use now is the invite email's
-    // sign-in link (appUrl, below). (It's no longer an
-    // OAuth callback - the web client sets disableOAuth, so no callback is
-    // registered.) Falls back to the local dev origin when unset. The name is
-    // historical; it's really just the app origin.
-    // REQUIRED for anything but a throwaway stack. It's the sign-in link in the invite
-    // email, so a wrong value mails your users at someone else's app - which is why the
-    // repo ships no default. With a custom domain configured the SPA's origin IS that
-    // link, so it's derived from `domainName` and needs no second setting; otherwise set
-    // it in infra/cdk.context.json or with `-c webCallbackUrl=…`. Falling
-    // back to localhost is only sane for local dev, so say so loudly rather than
-    // shipping broken invite emails.
     // Globally unique per region, so a second deployment in the same region needs its
     // own. Defaults to ours; override with `-c cognitoDomainPrefix=…`.
     const domainPrefix =
       (this.node.tryGetContext("cognitoDomainPrefix") as string | undefined) ?? COGNITO_DOMAIN_PREFIX;
 
+    // The web app's origin. Its only use is the sign-in link in the invite email - it is NOT an
+    // OAuth callback (the web client sets disableOAuth, so no callback is registered). A wrong
+    // value mails your users at someone else's app, which is why the repo ships no default: with a
+    // custom domain the SPA's origin IS that link, so it's derived from `domainName` and needs no
+    // second setting; otherwise set `webCallbackUrl` in infra/cdk.context.json or with
+    // `-c webCallbackUrl=…`. The localhost fallback is only sane for local dev, so it warns below.
     const webCallbackUrl = this.node.tryGetContext("webCallbackUrl") as string | undefined;
     const siteUrl = props?.domain ? `https://${props.domain.siteDomain}/` : undefined;
     const appUrl = webCallbackUrl ?? siteUrl ?? "http://localhost:5173/";

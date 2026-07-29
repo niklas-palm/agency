@@ -40,7 +40,6 @@ import { readCapped } from "./outbound.js";
  */
 const MAX_RESPONSE_BYTES = 256 * 1024;
 export const MAX_LARGE_RESPONSE_BYTES = Math.floor(2.5 * 1024 * 1024);
-/** Per-call wall-clock deadline for the downstream request. */
 /**
  * One deadline for the whole forward: the credential mint (oauth2Client, up to
  * MINT_TIMEOUT_MS) plus the downstream request and any redirect hops. Kept well

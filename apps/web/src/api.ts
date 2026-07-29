@@ -191,7 +191,6 @@ export async function putSlackCredentials(
   );
 }
 
-/** Set the channel allowlist. Each id is validated against the connected workspace. */
 /** Name the bot. Only before the app exists - Slack fixes the handle at creation. */
 export async function putSlackBotName(
   id: string,
@@ -220,6 +219,7 @@ export async function listSlackChannels(
   return managed(() => fetch(`${BASE}/agents/${id}/slack/channels`, { headers: authHeaders() }));
 }
 
+/** Set the channel allowlist. Each id is validated against the connected workspace. */
 export async function putSlackChannels(
   id: string,
   channels: string[],

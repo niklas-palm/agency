@@ -149,9 +149,8 @@ export interface SlackRouteDeps {
   dispatch(args: {
     record: AgentRecord;
     prompt: string;
+    /** Encodes the channel + thread, so the reply target needs no separate argument. */
     sessionId: string;
-    channel: string;
-    threadTs: string;
     /** The ts of the message that invoked the agent - the correct reaction target. */
     messageTs: string;
     /** Who mentioned the agent, so the turn can name them. */
@@ -278,8 +277,6 @@ export function mountSlackRoutes<E extends Env>(app: Hono<E>, deps: SlackRouteDe
         record,
         prompt: decision.prompt,
         sessionId,
-        channel: decision.channel,
-        threadTs: decision.threadTs,
         messageTs: decision.messageTs,
         slackUser: decision.slackUser,
       });

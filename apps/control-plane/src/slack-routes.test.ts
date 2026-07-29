@@ -281,10 +281,13 @@ describe("POST /webhooks/slack/:agentId", () => {
     await app.fetch(
       mentionRequestOrSigned({ ts: "1700000000.000900", thread_ts: "1700000000.000100" }),
     );
-    const args = dispatch.mock.calls[0]?.[0] as { threadTs: string; messageTs: string };
-    // The session follows the thread; the reaction target is the message that called us.
-    expect(args.threadTs).toBe("1700000000.000100");
+    const args = dispatch.mock.calls[0]?.[0] as { sessionId: string; messageTs: string };
+    // The session follows the THREAD, so a follow-up mention injects into the running turn...
+    expect(args.sessionId).toContain("1700000000_000100");
+    // ...while the reaction target is the message that actually called us. Reacting to the thread
+    // parent instead would decorate someone else's older message.
     expect(args.messageTs).toBe("1700000000.000900");
+    expect(args.sessionId).not.toContain("000900");
   });
 
   it("drops a mention with no timestamp - it could never be replied to", async () => {
