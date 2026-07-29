@@ -27,6 +27,7 @@ export { BLOCKED_ADDRESSES, ALLOWED_ADDRESSES } from "./ssrf-policy.js";
 export {
   SLACK_BOT_SCOPES,
   slackAppName,
+  slackBotName,
   slackRequestUrl,
   slackManifest,
 } from "./slack-manifest.js";

@@ -179,6 +179,23 @@ The accepted cost: `IngestFn` can now read the agents table, which carries `slac
 never read - would drop the allowlist re-check that makes a revoked channel take effect on a
 thread that's already running.
 
+### Disconnecting
+
+`DELETE /agents/:id/slack` forgets the app: it clears the credentials and everything the app taught
+us (app id, workspace, bot user, granted scopes, channels) while KEEPING the trigger, so the setup
+panel reappears at step 1. That matters because the Slack app and our record can drift in ways only
+a reset fixes - a bot renamed in Slack, an app deleted there, a reinstall into a different
+workspace.
+
+Toggling the trigger off in the config form is not the same thing and used to leave a live bot
+token on the record; it now clears the secrets too. Deleting the app inside Slack stays the user's
+own step - we hold no configuration token, by design.
+
+**Removing a channel needs no Slack connection.** Validation exists to stop a foreign channel id
+being stored, so only genuinely NEW ids are checked; shortening or clearing the list works even
+after a disconnect. Re-validating the whole list on every save also cost a Slack round trip per
+channel, so a ten-channel agent paid ten calls to drop one.
+
 ### The channel allowlist is a security control
 
 An agent with a bash tool that answers anywhere it's invited means **anyone who can `/invite`

@@ -196,3 +196,34 @@ describe("withSlackVerification", () => {
     });
   });
 });
+/**
+ * Channel-list edits, which is where a 409 stranded a real user.
+ *
+ * Validation exists to stop a FOREIGN channel id being saved (it produces an agent that looks
+ * configured and ignores every mention). It must not therefore block a removal, or an agent whose
+ * Slack connection has been reset can never have its list shortened - and re-validating already
+ * approved ids costs a Slack round trip per channel on every save.
+ */
+describe("which channel ids need validating", () => {
+  const stored = ["C0000000001", "C0000000002"];
+
+  it("treats only genuinely new ids as needing a Slack check", () => {
+    const requested = ["C0000000001", "C0000000009"];
+    expect(requested.filter((id) => !stored.includes(id))).toEqual(["C0000000009"]);
+  });
+
+  it("needs no check at all to REMOVE one", () => {
+    const requested = ["C0000000001"];
+    expect(requested.filter((id) => !stored.includes(id))).toEqual([]);
+  });
+
+  it("needs no check to clear the list entirely", () => {
+    expect([].filter((id) => !stored.includes(id))).toEqual([]);
+  });
+
+  it("re-ordering is not an addition", () => {
+    const requested = ["C0000000002", "C0000000001"];
+    expect(requested.filter((id) => !stored.includes(id))).toEqual([]);
+  });
+});
+

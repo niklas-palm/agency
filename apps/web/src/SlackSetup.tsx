@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Copy, ExternalLink, Loader2, RefreshCw } from "lucide-react";
 import {
+  disconnectSlack,
   getSlackSetup,
   listSlackChannels,
   putSlackChannels,
@@ -631,6 +632,22 @@ function LivePanel({
         {err && <p className="mt-2 text-xs text-danger">{err}</p>}
       </div>
 
+      {canWrite && (
+        <div className="rounded-lg border border-line bg-surface p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-ink">Disconnect Slack</div>
+              <p className="mt-0.5 text-xs text-muted">
+                Forgets the app, its credentials and the channel list, and restarts setup at step 1.
+                Use this if the Slack app was renamed, deleted, or installed in the wrong workspace.
+                Deleting the app in Slack itself is separate - we can't do that for you.
+              </p>
+            </div>
+            <Disconnect agentId={agentId} onDone={onChange} />
+          </div>
+        </div>
+      )}
+
       {setup.grantedScopes?.length ? (
         <details className="rounded-lg border border-line bg-surface p-4">
           <summary className="cursor-pointer text-xs text-muted">
@@ -755,6 +772,52 @@ function CopyBlock({ label, value, multiline }: { label: string; value: string; 
       >
         {value}
       </pre>
+    </div>
+  );
+}
+
+/** Confirm-gated, because it throws away credentials the user had to fetch from Slack by hand. */
+function Disconnect({ agentId, onDone }: { agentId: string; onDone: () => void }) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  if (!confirming) {
+    return (
+      <button className="btn btn-ghost shrink-0" type="button" onClick={() => setConfirming(true)}>
+        Disconnect
+      </button>
+    );
+  }
+  return (
+    <div className="shrink-0 text-right">
+      <div className="flex items-center gap-2">
+        <button
+          className="btn btn-ghost"
+          type="button"
+          disabled={busy}
+          onClick={() => setConfirming(false)}
+        >
+          Cancel
+        </button>
+        <button
+          className="btn"
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true);
+            setErr(null);
+            disconnectSlack(agentId)
+              .then(onDone)
+              .catch((e) => setErr(parseApiError(e, "could not disconnect").error))
+              .finally(() => setBusy(false));
+          }}
+        >
+          {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          Yes, disconnect
+        </button>
+      </div>
+      {err && <p className="mt-1.5 text-xs text-danger">{err}</p>}
     </div>
   );
 }

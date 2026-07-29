@@ -184,6 +184,13 @@ export async function putSlackCredentials(
 }
 
 /** Set the channel allowlist. Each id is validated against the connected workspace. */
+/** Forget the Slack app entirely: clears the credentials and everything it taught us. */
+export async function disconnectSlack(id: string): Promise<void> {
+  await managedVoid(() =>
+    fetch(`${BASE}/agents/${id}/slack`, { method: "DELETE", headers: authHeaders() }),
+  );
+}
+
 /** The channels the bot can see, for the picker. Needs no extra Slack scope. */
 export async function listSlackChannels(
   id: string,
@@ -195,7 +202,7 @@ export async function putSlackChannels(
   id: string,
   channels: string[],
   allChannels = false,
-): Promise<{ channels: { id: string; name: string; isPrivate: boolean }[]; allChannels: boolean }> {
+): Promise<{ channels: string[]; allChannels: boolean }> {
   return managed(() =>
     fetch(`${BASE}/agents/${id}/slack/channels`, {
       method: "PATCH",

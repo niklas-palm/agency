@@ -147,6 +147,23 @@ export function buildOpenApiSpec(serverUrl: string) {
             "404": jsonResponse("No Slack trigger on this agent.", "Error"),
           },
         },
+        delete: {
+          tags: ["Agents"],
+          summary: "Disconnect Slack",
+          description:
+            "Forgets the Slack app: clears the stored credentials and everything the app taught us " +
+            "(app id, workspace, bot user, granted scopes, channels), keeping the trigger so setup " +
+            "restarts from the manifest. Use it when the app was renamed, deleted, or installed in " +
+            "the wrong workspace. Deleting the app inside Slack is a separate step the user takes - " +
+            "we hold no Slack configuration token.",
+          security: [{ accountToken: [] }],
+          responses: {
+            "204": { description: "Disconnected." },
+            "401": UNAUTHORIZED,
+            "403": FORBIDDEN,
+            "404": jsonResponse("No Slack trigger on this agent.", "Error"),
+          },
+        },
       },
       "/agents/{id}/slack/credentials": {
         parameters: [ORG_HEADER_PARAM, pathParam("id", "Agent id.")],

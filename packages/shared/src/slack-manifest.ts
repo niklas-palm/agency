@@ -34,11 +34,11 @@ export const SLACK_BOT_SCOPES = [
   "reactions:write",
 ] as const;
 
-/**
- * Slack rejects an app name over 35 chars, and the name is the bot's public identity, so a
- * silent truncation would be worse than a visible one.
- */
+/** Slack caps `display_information.name` at 35 characters. */
 const MAX_APP_NAME = 35;
+
+/** Slack caps `features.bot_user.display_name` at 80. */
+const MAX_BOT_NAME = 80;
 
 export interface SlackManifestInput {
   /** The agent's name - becomes the bot people @-mention. */
@@ -52,14 +52,33 @@ export interface SlackManifestInput {
 }
 
 /**
- * Slack's display name rules: <=35 chars, and it must not be blank. We don't attempt to
- * sanitize beyond that - a name Slack rejects should surface as Slack's own error, which is
- * clearer than a guess we made silently.
+ * The app's display name: <=35 chars, and not blank. Slack allows spaces and mixed case here,
+ * so the agent's name passes through as the user wrote it.
  */
 export function slackAppName(agentName: string): string {
   const trimmed = agentName.trim();
   if (!trimmed) return "agency-agent";
   return trimmed.length > MAX_APP_NAME ? trimmed.slice(0, MAX_APP_NAME) : trimmed;
+}
+
+/**
+ * The BOT USER's handle - what people actually type after `@`. Slack's rules here are stricter
+ * than for the app name: **only `a-z 0-9 - _ .`**, so uppercase and spaces are rejected outright.
+ *
+ * This is not cosmetic. An invalid value makes Slack refuse the whole manifest, so an agent named
+ * with a capital letter - `Slack-bot`, say - produced an app the user had to rename by hand, and
+ * the handle they then @-mentioned no longer matched anything we knew about.
+ *
+ * So we lower-case, replace runs of anything else with a single `-`, and trim stray separators.
+ */
+export function slackBotName(agentName: string): string {
+  const handle = agentName
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^[-._]+|[-._]+$/g, "")
+    .slice(0, MAX_BOT_NAME);
+  return handle || "agency-agent";
 }
 
 /** The events URL for one agent. The agentId is in the PATH - see `SlackTrigger` for why. */
@@ -84,7 +103,8 @@ export function slackManifest(input: SlackManifestInput): Record<string, unknown
     },
     features: {
       bot_user: {
-        display_name: name,
+        // NOT `name`: the bot handle has a stricter charset than the app name (see slackBotName).
+        display_name: slackBotName(input.agentName),
         // The agent replies in-thread; it doesn't need to appear always-online.
         always_online: false,
       },

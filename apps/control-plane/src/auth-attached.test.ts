@@ -37,6 +37,7 @@ const AUTHED: Array<[string, string]> = [
   ["GET", "/agents/a1/runs/r1"],
   // The three that were missing. Nested under /agents/:id, so not covered by its prefix.
   ["GET", "/agents/a1/slack"],
+  ["DELETE", "/agents/a1/slack"],
   ["PATCH", "/agents/a1/slack/credentials"],
   ["PATCH", "/agents/a1/slack/channels"],
   ["GET", "/skills"],

@@ -918,6 +918,12 @@ export function buildRoutes(deps: Deps): Hono<Env> {
     // a spurious version. Both sides run through normalizeConfig so empty
     // skillIds/env the UI always sends canonicalize away and diff equal.
     if (JSON.stringify(merged) !== JSON.stringify(normalizeConfig(current.config))) {
+        // Dropping the Slack trigger must drop its credentials too. Otherwise toggling Slack off
+        // leaves a live bot token + signing secret on the record, outliving the feature that used
+        // them - and toggling back on reads as half-connected (a token with no workspace).
+        if (slackOf(current.config) && !slackOf(merged)) {
+          await updateAgent(current.id, { slackSecrets: null });
+        }
       current = await applyNewVersion(deps, current, merged);
     }
 
@@ -2010,36 +2016,69 @@ export function buildRoutes(deps: Deps): Hono<Env> {
     const record = auth.record;
     const trigger = slackOf(record.config);
     if (!trigger) return c.json({ error: "this agent has no Slack trigger" }, 404);
-    const botToken = record.slackSecrets?.botToken;
-    if (!botToken || !trigger.teamId) {
-      return c.json({ error: "connect the Slack app first" }, 409);
-    }
-
     const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
     const requested = Array.isArray(body?.channels) ? body.channels : null;
     if (!requested) return c.json({ error: "channels must be an array" }, 400);
     if (requested.length > 25) return c.json({ error: "at most 25 channels" }, 400);
+    for (const raw of requested) {
+      if (typeof raw !== "string") return c.json({ error: "channel ids must be strings" }, 400);
+    }
+    const ids = (requested as string[]).map((r) => r.trim());
     // Opt-in to answering wherever the bot is invited. The explicit list is still kept and still
     // validated, so turning this back off restores the previous allowlist rather than losing it.
     const allChannels = body?.allChannels === true;
 
-    const resolved: Array<{ id: string; name: string; isPrivate: boolean }> = [];
-    for (const raw of requested) {
-      if (typeof raw !== "string") return c.json({ error: "channel ids must be strings" }, 400);
-      const info = await slackChannelInfo(botToken, raw.trim(), trigger.teamId);
-      if ("ok" in info && info.ok === false) {
-        return c.json({ error: info.error, hint: info.hint, channel: raw }, 400);
+    // Validate only what's genuinely NEW. Two reasons this isn't just an optimization:
+    // REMOVING a channel (or turning allChannels off) must work even with no Slack connection at
+    // all - refusing it stranded the user with a list they couldn't shorten - and re-checking an
+    // already-approved id costs a Slack round trip per channel on every save, so a 10-channel
+    // agent paid 10 calls to drop one.
+    const botToken = record.slackSecrets?.botToken;
+    const added = ids.filter((id) => !trigger.channels.includes(id));
+    if (added.length) {
+      if (!botToken || !trigger.teamId) {
+        return c.json({ error: "connect the Slack app before adding channels" }, 409);
       }
-      resolved.push(info as { id: string; name: string; isPrivate: boolean });
+      for (const id of added) {
+        const info = await slackChannelInfo(botToken, id, trigger.teamId);
+        if ("ok" in info && info.ok === false) {
+          return c.json({ error: info.error, hint: info.hint, channel: id }, 400);
+        }
+      }
     }
 
     const triggers = record.config.triggers.map((t) =>
-      t.type === "slack"
-        ? { ...t, channels: resolved.map((r) => r.id), ...(allChannels ? { allChannels: true } : {}) }
-        : t,
+      t.type === "slack" ? { ...t, channels: ids, ...(allChannels ? { allChannels: true } : {}) } : t,
     );
     await applyNewVersion(deps, record, { ...record.config, triggers }, "set Slack channels");
-    return c.json({ channels: resolved, allChannels });
+    return c.json({ channels: ids, allChannels });
+  });
+
+  /**
+   * Disconnect Slack: forget the app entirely and start over.
+   *
+   * Needed because the Slack app and our record can drift in ways only a reset fixes - a renamed
+   * bot, an app deleted in Slack, a reinstall into a different workspace. Toggling the trigger off
+   * in the config form is NOT equivalent: it drops the trigger but leaves `slackSecrets` on the
+   * record, so a live bot token outlives the feature that used it.
+   *
+   * Keeps the trigger (so the setup panel reappears at step 1) but clears everything the old app
+   * taught us. Deleting the app itself is the user's job - we hold no config token, by design.
+   */
+  app.delete("/agents/:id/slack", requireScope("write"), async (c) => {
+    const auth = authorize(c.var.principal, await getAgent(c.req.param("id")), "write", "you can't edit this agent");
+    if (!auth.ok) return c.json({ error: auth.error }, auth.status);
+    const record = auth.record;
+    if (!slackOf(record.config)) return c.json({ error: "this agent has no Slack trigger" }, 404);
+
+    // Secrets first: if the version bump then fails, we've left no usable credential behind -
+    // the safer order, since the trigger without secrets is just an unconfigured trigger.
+    await updateAgent(record.id, { slackSecrets: null });
+    const triggers = record.config.triggers.map((t) =>
+      t.type === "slack" ? { type: "slack" as const, channels: [] } : t,
+    );
+    await applyNewVersion(deps, record, { ...record.config, triggers }, "disconnected Slack");
+    return c.body(null, 204);
   });
 
   // The Slack webhook. Public + unauthenticated by necessity (Slack can hold no credential of

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   SLACK_BOT_SCOPES,
   slackAppName,
+  slackBotName,
   slackManifest,
   slackRequestUrl,
 } from "./slack-manifest.js";
@@ -41,6 +42,45 @@ describe("slackAppName", () => {
   });
 });
 
+describe("slackBotName", () => {
+  /**
+   * The regression that cost a real debugging session: an agent named `Slack-bot` produced a
+   * manifest Slack REFUSED, because `features.bot_user.display_name` allows only `a-z 0-9 - _ .`
+   * The user renamed the bot by hand, and the handle they then @-mentioned no longer matched
+   * anything we had stored.
+   */
+  it("lower-cases, so a capitalised agent name doesn't invalidate the manifest", () => {
+    expect(slackBotName("Slack-bot")).toBe("slack-bot");
+    expect(slackBotName("Deploy Helper")).toBe("deploy-helper");
+  });
+
+  it("replaces every disallowed character, collapsing runs", () => {
+    expect(slackBotName("My Agent!! (v2)")).toBe("my-agent-v2");
+    expect(slackBotName("a@@@b")).toBe("a-b");
+  });
+
+  it("keeps the characters Slack does allow", () => {
+    expect(slackBotName("deploy_bot.v1-x")).toBe("deploy_bot.v1-x");
+  });
+
+  it("trims separators from the ends, which Slack also rejects", () => {
+    expect(slackBotName("--agent--")).toBe("agent");
+    expect(slackBotName("...agent...")).toBe("agent");
+  });
+
+  it("falls back rather than emitting an empty handle", () => {
+    expect(slackBotName("!!!")).toBe("agency-agent");
+    expect(slackBotName("   ")).toBe("agency-agent");
+  });
+
+  it("only ever emits Slack's allowed charset", () => {
+    for (const name of ["Slack-bot", "My Agent!! (v2)", "ÄÖÜ agent", "a".repeat(120), "!!!"]) {
+      expect(slackBotName(name), name).toMatch(/^[a-z0-9._-]+$/);
+      expect(slackBotName(name).length).toBeLessThanOrEqual(80);
+    }
+  });
+});
+
 describe("slackManifest", () => {
   it("bakes in the request url, so nothing is left to toggle after creation", () => {
     const m = slackManifest(input) as Record<string, any>;
@@ -75,9 +115,11 @@ describe("slackManifest", () => {
     }
   });
 
-  it("names the bot after the agent - the bot IS the agent's identity", () => {
-    const m = slackManifest(input) as Record<string, any>;
-    expect(m.display_information.name).toBe("deploy-bot");
+  it("names the app as written but the bot handle sanitized", () => {
+    const m = slackManifest({ ...input, agentName: "Deploy Bot" }) as Record<string, any>;
+    // The app name keeps the user's capitalisation and spaces - Slack allows both here.
+    expect(m.display_information.name).toBe("Deploy Bot");
+    // The handle can't: Slack rejects uppercase and spaces in a bot display_name.
     expect(m.features.bot_user.display_name).toBe("deploy-bot");
   });
 
