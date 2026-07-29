@@ -211,11 +211,22 @@ tokens)` (`packages/shared/src/models.ts`) before summing or pricing it:
 
 - **Bedrock/Converse (Anthropic)** excludes cache tokens from `inputTokens`: total
   input = `inputTokens + cacheReadInputTokens + cacheWriteInputTokens`. The four
-  drivers are already disjoint.
+  drivers are already disjoint. This is stated in the Bedrock prompt-caching guide and
+  confirmed on the wire: a Converse call with a `cachePoint` in eu-north-1 returned
+  `inputTokens: 10, outputTokens: 4, cacheReadInputTokens: 6168, totalTokens: 6182` -
+  the total ADDS the cache read.
 - **OpenAI (Mantle)** includes them: `cached_tokens` says how many of `input_tokens`
   were a cache hit, and the cached rate replaces the input rate for those tokens.
-  Strands maps it onto the same `cacheReadTokens` field, so nothing downstream can
-  tell the conventions apart.
+  Documented in the same guide's OpenAI section, whose example response is
+  `input_tokens: 2048, output_tokens: 256, total_tokens: 2304` with
+  `input_tokens_details.cached_tokens: 1920` - the cached tokens sit inside the input
+  count, and the total is just input + output. Strands maps `cached_tokens` onto the
+  same `cacheReadTokens` field, so nothing downstream can tell the conventions apart.
+
+Stored rows carry the same signature: every OpenAI row in this deployment has
+`cacheReadTokens <= inputTokens` (a subset), while Anthropic rows routinely have cache
+reads *thousands of times* `inputTokens` (disjoint) - so the subtraction must stay keyed
+off the provider, never applied to both.
 
 Without the subtraction an OpenAI run's cache hits were counted twice in
 `totalTokens` and charged twice in `costUsd` (input rate *and* cache rate). That is a

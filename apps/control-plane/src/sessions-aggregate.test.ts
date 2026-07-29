@@ -209,7 +209,7 @@ describe("aggregate", () => {
 
   it("doesn't double-count an OpenAI row's cache reads (they sit inside inputTokens)", () => {
     // Bedrock reports the four drivers disjoint; OpenAI counts cache hits INSIDE
-    // input_tokens (verified on the wire - see docs/metrics.md). Both rows below claim
+    // input_tokens (see docs/metrics.md for both sources). Both rows below claim
     // the same shape, so summing them the same way charges the OpenAI cache hits twice:
     // once at the input rate and again at the cache-read rate.
     const tokens = { inputTokens: 1_000_000, outputTokens: 0, cacheReadTokens: 900_000, cacheWriteTokens: 0 };

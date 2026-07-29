@@ -112,20 +112,22 @@ describe("normalizeUsage - the two providers' cache conventions", () => {
   const bedrockModel = MODEL_KEYS.find((k) => MODELS[k].provider === "bedrock")!;
 
   it("subtracts cache reads from input for a provider that counts them inside it", () => {
-    // Verified against the wire: OpenAI's Responses API reports
-    // `{ input_tokens: 2006, input_tokens_details: { cached_tokens: 1920 } }` - the
-    // cached tokens are a SUBSET of input, and `total_tokens` (2306) excludes them.
-    // Strands maps that onto the same cacheRead field the Bedrock adapter uses, where
-    // the drivers are disjoint. Un-normalized, this bundle used to be summed AND
-    // charged twice: once at the input rate, again at the cache-read rate.
-    const raw = { inputTokens: 2006, outputTokens: 300, cacheReadTokens: 1920, cacheWriteTokens: 0 };
+    // Numbers are AWS's own documented Mantle/Responses cache-hit example (Bedrock
+    // user guide, "Cache Management for Models from OpenAI"): `input_tokens: 2048,
+    // output_tokens: 256, total_tokens: 2304, input_tokens_details.cached_tokens: 1920`.
+    // The cached tokens are a SUBSET of input - the provider's own total is input +
+    // output, with the 1920 already inside input. Strands maps `cached_tokens` onto the
+    // same cacheRead field the Bedrock adapter uses, where the drivers are disjoint.
+    // Un-normalized, this bundle used to be summed AND charged twice: once at the input
+    // rate, again at the cache-read rate.
+    const raw = { inputTokens: 2048, outputTokens: 256, cacheReadTokens: 1920, cacheWriteTokens: 0 };
     const t = normalizeUsage(openaiModel, raw);
 
     expect(inputIncludesCacheRead(openaiModel)).toBe(true);
-    expect(t.inputTokens).toBe(86); // 2006 - 1920 served from cache
-    expect(tokenTotal(t)).toBe(2306); // == the provider's own total_tokens
+    expect(t.inputTokens).toBe(128); // 2048 - 1920 served from cache
+    expect(tokenTotal(t)).toBe(2304); // == the provider's own total_tokens
     const p = MODEL_PRICING[openaiModel];
-    expect(costFor(openaiModel, t)).toBeCloseTo((86 * p.inputPerMTok + 300 * p.outputPerMTok + 1920 * p.cacheReadPerMTok) / 1e6);
+    expect(costFor(openaiModel, t)).toBeCloseTo((128 * p.inputPerMTok + 256 * p.outputPerMTok + 1920 * p.cacheReadPerMTok) / 1e6);
   });
 
   it("leaves a Bedrock row alone - its drivers are already disjoint", () => {
