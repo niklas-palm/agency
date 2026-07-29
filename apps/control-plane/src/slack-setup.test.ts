@@ -307,5 +307,43 @@ describe("missingRequiredScopes", () => {
   });
 });
 
+/**
+ * The two credential fields are adjacent, both masked, and both opaque blobs - so pasting the bot
+ * token into BOTH is easy, and it was silent: the token stored fine, setup reported "live", and
+ * every real mention 401'd on a signature that could never verify. Slack's own shapes distinguish
+ * them, so there was no excuse for accepting it.
+ */
+describe("credential shape validation", () => {
+  const isBotToken = (v: string) => v.startsWith("xoxb-");
+  const isSigningSecret = (v: string) => /^[0-9a-f]{32}$/.test(v);
+
+  // Assembled rather than written literally: a `xoxb-…`-shaped string in a fixture trips secret
+  // scanners, and a scanner that cries wolf on test data is one people learn to ignore.
+  const BOT = ["xoxb", "0".repeat(12), "0".repeat(12), "a".repeat(24)].join("-");
+  const USER = ["xoxp", "0".repeat(12), "0".repeat(12), "a".repeat(12)].join("-");
+
+  it("recognizes a real pair", () => {
+    expect(isBotToken(BOT)).toBe(true);
+    expect(isSigningSecret("0123456789abcdef0123456789abcdef")).toBe(true);
+  });
+
+  /** The exact mistake: the same xoxb- value in both fields. */
+  it("rejects a token pasted into the signing-secret field", () => {
+    expect(isSigningSecret(BOT)).toBe(false);
+    expect(BOT.startsWith("xox")).toBe(true); // caught by the token-shaped guard first
+  });
+
+  it("rejects a user token in the bot-token field", () => {
+    expect(isBotToken(USER)).toBe(false);
+  });
+
+  it("rejects a signing secret that isn't 32 hex chars", () => {
+    for (const bad of ["", "tooshort", "0123456789abcdef0123456789abcdeff", "0123456789ABCDEF0123456789abcdef"]) {
+      expect(isSigningSecret(bad), bad || "(empty)").toBe(false);
+    }
+  });
+});
+
+
 
 

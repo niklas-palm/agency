@@ -2003,6 +2003,42 @@ export function buildRoutes(deps: Deps): Hono<Env> {
     if (!botToken || !signingSecret) {
       return c.json({ error: "botToken and signingSecret are both required" }, 400);
     }
+    // The two fields are adjacent, both masked, and both look like opaque blobs - so pasting the
+    // token into BOTH is easy and, until now, silent: the token stored fine, setup reported live,
+    // and every real mention 401'd on a signature that could never verify. Slack's shapes are
+    // distinct enough to catch it outright.
+    if (!botToken.startsWith("xoxb-")) {
+      return c.json(
+        {
+          error: "that doesn't look like a bot token",
+          hint: "The Bot User OAuth Token starts `xoxb-` and is on OAuth & Permissions.",
+        },
+        400,
+      );
+    }
+    if (signingSecret.startsWith("xox")) {
+      return c.json(
+        {
+          error: "that's a token, not the signing secret",
+          hint:
+            "The signing secret is a 32-character hex string on Basic Information, under App " +
+            "Credentials - not the xoxb- token. They're easy to mix up because both fields are masked.",
+        },
+        400,
+      );
+    }
+    if (!/^[0-9a-f]{32}$/.test(signingSecret)) {
+      return c.json(
+        {
+          error: "that doesn't look like a signing secret",
+          hint:
+            "It's a 32-character hex string from Basic Information → App Credentials → Signing " +
+            "Secret (click Show first). Verification uses it on every request, so a wrong value " +
+            "means every mention is rejected.",
+        },
+        400,
+      );
+    }
 
     // Verify BEFORE storing: a token that doesn't work should not be saved and reported as
     // connected. This is also where we learn teamId/botUserId, which routing needs.

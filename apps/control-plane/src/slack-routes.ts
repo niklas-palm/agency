@@ -216,8 +216,11 @@ export function mountSlackRoutes<E extends Env>(app: Hono<E>, deps: SlackRouteDe
       nowSeconds: now(),
     });
     if (!verdict.ok) {
-      // 401 with the reason in the body, not just the log: during setup this is the single
-      // most likely thing to go wrong, and "nothing happened" is undebuggable.
+      // LOG the reason as well as returning it. Slack discards our response body, so a reason only
+      // in the body is a reason nobody ever reads - and `bad_signature` vs `stale_timestamp` is
+      // exactly the distinction that separates "wrong signing secret" from "clock skew". Not
+      // logging it cost an afternoon of guessing at a 401.
+      console.warn("slack request unverified", record.id, verdict.reason);
       return c.json({ error: "unverified", reason: verdict.reason }, 401);
     }
 
