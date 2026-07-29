@@ -264,10 +264,10 @@ Three calls, and the user does three things in Slack that no API can do for them
    we answer it automatically, and \`state\` becomes \`url_verified\` on its own. Poll the GET
    to show progress - if it never flips, the manifest went somewhere else.
 3. The user installs the app (workspace consent - no API for it) and copies two values:
-   \`PUT /agents/{id}/slack/credentials\` with \`{ botToken, signingSecret }\`. Both are
+   \`PATCH /agents/{id}/slack/credentials\` with \`{ botToken, signingSecret }\`. Both are
    write-only. We verify with Slack's \`auth.test\` BEFORE storing, and the response tells you
    which workspace was connected and which scopes Slack actually granted.
-4. \`PUT /agents/{id}/slack/channels\` with \`{ channels: ["C…"] }\`. Every id is validated
+4. \`PATCH /agents/{id}/slack/channels\` with \`{ channels: ["C…"] }\`. Every id is validated
    against the connected workspace, because channel ids are workspace-scoped and a foreign id
    produces an agent that looks configured and silently ignores every mention.
 

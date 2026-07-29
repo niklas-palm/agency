@@ -30,8 +30,8 @@ narrowed by its own scopes. Per-resource visibility/writability then applies via
 | `GET /agents/:id/runs?limit=`                   | JWT or PAT      | `read`  | Past runs, newest first (durable)     |
 | `GET /agents/:id/runs/:runId`                   | JWT or PAT      | `read`  | One past run's trajectory (table, else the S3 archive) |
 | `GET /agents/:id/slack`                         | JWT or PAT      | `read`  | Slack setup state + the app manifest to paste |
-| `PUT /agents/:id/slack/credentials`             | JWT or PAT      | `write` | Store + verify the bot token & signing secret (write-only) |
-| `PUT /agents/:id/slack/channels`                | JWT or PAT      | `write` | Set the channel allowlist (each id validated vs the workspace) |
+| `PATCH /agents/:id/slack/credentials`             | JWT or PAT      | `write` | Store + verify the bot token & signing secret (write-only) |
+| `PATCH /agents/:id/slack/channels`                | JWT or PAT      | `write` | Set the channel allowlist (each id validated vs the workspace) |
 | `POST /tokens`                                  | JWT only        | -              | Create a Personal Access Token (once, bound to the active org) |
 | `GET /tokens`                                   | JWT only        | -              | List your tokens (metadata only)     |
 | `DELETE /tokens/:id`                            | JWT only        | -              | Revoke a token                       |

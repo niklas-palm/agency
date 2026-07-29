@@ -1940,7 +1940,7 @@ export function buildRoutes(deps: Deps): Hono<Env> {
    * immediately verify with `auth.test`, so the reply tells the user which workspace they
    * actually connected and what Slack actually granted.
    */
-  app.put("/agents/:id/slack/credentials", requireScope("write"), async (c) => {
+  app.patch("/agents/:id/slack/credentials", requireScope("write"), async (c) => {
     const auth = authorize(c.var.principal, await getAgent(c.req.param("id")), "write", "you can't edit this agent");
     if (!auth.ok) return c.json({ error: auth.error }, auth.status);
     const record = auth.record;
@@ -1980,7 +1980,7 @@ export function buildRoutes(deps: Deps): Hono<Env> {
    * first: a well-formed id from another workspace would otherwise produce an agent that looks
    * configured and silently ignores every mention.
    */
-  app.put("/agents/:id/slack/channels", requireScope("write"), async (c) => {
+  app.patch("/agents/:id/slack/channels", requireScope("write"), async (c) => {
     const auth = authorize(c.var.principal, await getAgent(c.req.param("id")), "write", "you can't edit this agent");
     if (!auth.ok) return c.json({ error: auth.error }, auth.status);
     const record = auth.record;

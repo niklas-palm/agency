@@ -9,6 +9,56 @@ const deps: Deps = {
   identity: { ensureUser: async () => "exists", emailFor: async () => undefined },
 };
 
+/**
+ * Every HTTP method the API actually routes must be listed in `allowMethods`.
+ *
+ * This shipped broken: the two Slack setup endpoints were the API's only PUTs, and `allowMethods`
+ * didn't include PUT - so the preflight returned 204 while advertising no PUT, and the browser
+ * refused the real request. Nothing caught it because every backend test calls the app directly,
+ * where CORS never applies, and the CORS test that existed hardcoded GET.
+ *
+ * So this derives the set from the app's own router rather than restating it: a new route with a
+ * method CORS doesn't allow now fails here instead of in someone's browser.
+ */
+/** Methods the router actually has handlers for, read off Hono's route table. */
+const ROUTED_METHODS = [
+  ...new Set(
+    (buildApp(deps).routes as Array<{ method: string }>)
+      .map((r) => r.method.toUpperCase())
+      .filter((m) => m !== "ALL" && m !== "OPTIONS"),
+  ),
+].sort();
+
+describe("allowMethods covers every method the API routes", () => {
+  const app = buildApp(deps);
+
+  it("routes at least the methods we expect (guards against an empty read)", () => {
+    // If this ever reads empty the test below would pass vacuously.
+    expect(ROUTED_METHODS).toContain("GET");
+    expect(ROUTED_METHODS).toContain("POST");
+    expect(ROUTED_METHODS.length).toBeGreaterThan(2);
+  });
+
+  it.each(ROUTED_METHODS)("preflight for %s is allowed", async (method) => {
+    const res = await app.request("/agents", {
+      method: "OPTIONS",
+      headers: {
+        Origin: "https://example.cloudfront.net",
+        "Access-Control-Request-Method": method,
+        "Access-Control-Request-Headers": "authorization,content-type",
+      },
+    });
+    expect(res.status).toBeLessThan(300);
+    const allowed = (res.headers.get("access-control-allow-methods") ?? "")
+      .split(",")
+      .map((m) => m.trim().toUpperCase());
+    expect(
+      allowed,
+      `the API routes ${method} but CORS doesn't allow it - a browser would refuse the request`,
+    ).toContain(method);
+  });
+});
+
 describe("CORS preflight", () => {
   it("answers OPTIONS preflight with 2xx + CORS headers, NOT a 401 auth rejection", async () => {
     const app = buildApp(deps);

@@ -148,7 +148,7 @@ export function buildOpenApiSpec(serverUrl: string) {
       },
       "/agents/{id}/slack/credentials": {
         parameters: [ORG_HEADER_PARAM, pathParam("id", "Agent id.")],
-        put: {
+        patch: {
           tags: ["Agents"],
           summary: "Store the Slack credentials",
           description:
@@ -169,7 +169,7 @@ export function buildOpenApiSpec(serverUrl: string) {
       },
       "/agents/{id}/slack/channels": {
         parameters: [ORG_HEADER_PARAM, pathParam("id", "Agent id.")],
-        put: {
+        patch: {
           tags: ["Agents"],
           summary: "Set the Slack channel allowlist",
           description:
