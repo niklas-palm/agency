@@ -79,8 +79,10 @@ export function mintSessionToken(
   if (!RUNTIME_INGEST_KEY) return "";
   const exp = Math.floor(nowMs / 1000) + TTL_SECONDS;
   const base = `${b64url(orgId)}.${b64url(agentCreatedBy)}.${b64url(agentId)}.${b64url(sessionId)}.${b64url(integrationIds.join(","))}`;
-  // The Slack claim is APPENDED, so a non-Slack token stays byte-identical to before.
-  const claims = replyToTs ? `${base}.${exp}.${b64url(replyToTs)}` : `${base}.${exp}`;
+  // The optional Slack reply target goes BEFORE `exp`: verify splits the signature off at the
+  // LAST dot, so a claim after exp would be read as the signature and EVERY Slack token would
+  // fail - which is exactly what happened in prod. A non-Slack token is byte-identical.
+  const claims = replyToTs ? `${base}.${b64url(replyToTs)}.${exp}` : `${base}.${exp}`;
   return `${claims}.${sign(claims)}`;
 }
 
@@ -101,11 +103,23 @@ export function verifySessionToken(token: string, nowMs: number = Date.now()): S
   const macBuf = Buffer.from(mac);
   const expBuf = Buffer.from(expected);
   if (macBuf.length !== expBuf.length || !timingSafeEqual(macBuf, expBuf)) return null;
-  // Each part is `.`-free (ids/integrations are b64url-encoded, exp is digits), so
-  // a 6-way split is unambiguous regardless of the ids' original characters.
+  // Each part is `.`-free (ids/integrations are b64url-encoded, exp is digits), so the split is
+  // unambiguous regardless of the ids' original characters. SIX parts is any run; SEVEN is a Slack
+  // run, whose reply target sits between the grant and `exp` - see mint for why it cannot go after
+  // exp (the signature is split off at the last dot, so it would be read as the signature).
   const parts = claims.split(".");
-  if (parts.length !== 6) return null;
-  const [orgEnc, cbEnc, aEnc, sEnc, iEnc, expStr] = parts as [string, string, string, string, string, string];
+  if (parts.length !== 6 && parts.length !== 7) return null;
+  const [orgEnc, cbEnc, aEnc, sEnc, iEnc, sixth, seventh] = parts as [
+    string,
+    string,
+    string,
+    string,
+    string,
+    string,
+    string?,
+  ];
+  const expStr = seventh ?? sixth;
+  const rEnc = seventh ? sixth : undefined;
   const exp = Number(expStr);
   if (!Number.isFinite(exp) || Math.floor(nowMs / 1000) > exp) return null;
   let orgId: string, agentCreatedBy: string, agentId: string, sessionId: string, integrationsCsv: string;
@@ -119,5 +133,13 @@ export function verifySessionToken(token: string, nowMs: number = Date.now()): S
     return null;
   }
   const integrationIds = integrationsCsv ? integrationsCsv.split(",") : [];
-  return { orgId, agentCreatedBy, agentId, sessionId, integrationIds };
+  let replyToTs: string | undefined;
+  if (rEnc) {
+    try {
+      replyToTs = Buffer.from(rEnc, "base64url").toString("utf8") || undefined;
+    } catch {
+      return null;
+    }
+  }
+  return { orgId, agentCreatedBy, agentId, sessionId, integrationIds, ...(replyToTs ? { replyToTs } : {}) };
 }

@@ -98,4 +98,41 @@ describe("session tokens", () => {
     expect(m2.verifySessionToken(t)).toBeNull();
     vi.unstubAllEnvs();
   });
+
+  /**
+   * The Slack reply target is an OPTIONAL 7th claim, and its position is load-bearing: verify
+   * splits the signature off at the LAST dot, so a claim placed after `exp` is read as the
+   * signature and the token fails. That shipped, and every Slack run's telemetry 401'd in
+   * production while the agent ran and its output was discarded.
+   *
+   * Both shapes are asserted, because the bug broke one while leaving the other working - which
+   * is why the existing tests all passed.
+   */
+  it("round-trips a token carrying the Slack reply target, and one without", async () => {
+    const { mintSessionToken, verifySessionToken } = await tokenModule();
+    const withTs = mintSessionToken("o1", "u1", "a1", "s1", ["int-a"], Date.now(), "1700000000.000900");
+    const claims = verifySessionToken(withTs);
+    expect(claims).not.toBeNull();
+    expect(claims).toMatchObject({
+      orgId: "o1",
+      agentId: "a1",
+      sessionId: "s1",
+      integrationIds: ["int-a"],
+      replyToTs: "1700000000.000900",
+    });
+
+    // No target: unchanged from before the claim existed, and no stray field.
+    const plain = verifySessionToken(mintSessionToken("o1", "u1", "a1", "s1", ["int-a"]));
+    expect(plain).toMatchObject({ agentId: "a1", integrationIds: ["int-a"] });
+    expect(plain && "replyToTs" in plain).toBe(false);
+  });
+
+  it("binds the reply target to the signature, so it can't be swapped for another thread", async () => {
+    const { mintSessionToken, verifySessionToken } = await tokenModule();
+    const t = mintSessionToken("o1", "u1", "a1", "s1", [], Date.now(), "1700000000.000900");
+    const parts = t.split(".");
+    // Re-point the target at a different message, keeping everything else.
+    parts[5] = Buffer.from("1700000000.000001", "utf8").toString("base64url");
+    expect(verifySessionToken(parts.join("."))).toBeNull();
+  });
 });
