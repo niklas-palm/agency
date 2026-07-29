@@ -87,7 +87,8 @@ one row per (agentId, runId). Token usage comes from the Strands Agent's own acc
 stores the latest snapshot rather than summing per turn (summing would
 double-count). The four token fields (input / output / cache read / cache write)
 plus the session's `model` are written on the row - **exactly as the provider reported
-them**, which is why the read side normalizes them (see below). The
+them**, which is why the same tokens mean different things per provider (see the known
+issue below). The
 row's sort key is `runId` - a per-microVM-lifetime nonce - so:
 
 - a session's many triggers refresh **one** row (no double-counting);
@@ -203,11 +204,11 @@ a bounded window - session volumes are modest, and this keeps the write path a
 single Put with no rollup coordination. Add day-bucket rollup rows if volume ever
 demands it.
 
-#### The two providers count cache hits differently
+#### KNOWN ISSUE: OpenAI cache hits are counted (and charged) twice
 
-A stored row's four token fields are whatever the provider reported, and the two
-providers don't agree, so every read path runs the row through `normalizeUsage(model,
-tokens)` (`packages/shared/src/models.ts`) before summing or pricing it:
+Every read path treats the four token fields as disjoint - each token counted once, so
+the total is their sum and the cost is four multiplications. A stored row's fields are
+whatever the provider reported, and the two providers don't agree:
 
 - **Bedrock/Converse (Anthropic)** excludes cache tokens from `inputTokens`: total
   input = `inputTokens + cacheReadInputTokens + cacheWriteInputTokens`. The four
@@ -225,15 +226,20 @@ tokens)` (`packages/shared/src/models.ts`) before summing or pricing it:
 
 Stored rows carry the same signature: every OpenAI row in this deployment has
 `cacheReadTokens <= inputTokens` (a subset), while Anthropic rows routinely have cache
-reads *thousands of times* `inputTokens` (disjoint) - so the subtraction must stay keyed
-off the provider, never applied to both.
+reads *thousands of times* `inputTokens` (disjoint).
 
-Without the subtraction an OpenAI run's cache hits were counted twice in
-`totalTokens` and charged twice in `costUsd` (input rate *and* cache rate). That is a
-multiple, not a rounding error: on a long session most input is a cache hit - an
-observed run had 4.4M of its 5.2M input tokens served from cache, so it read ~1.8x
-the tokens and ~4.8x the cost. Normalizing read-side (rather than at write time)
-means rows written before the fix also come out right.
+So **an OpenAI run's cache hits are counted twice in `totalTokens` and charged twice in
+`costUsd`** (input rate *and* cache rate). That is a multiple, not a rounding error: on a
+long session most input is a cache hit - an observed run had 4.4M of its 5.2M input
+tokens served from cache, so it reads ~1.8x the tokens and ~4.8x the cost. Anthropic
+rows are unaffected.
+
+This is **deliberately not compensated for here**. The defect is that Strands' `Usage`
+type has no contract for whether cache reads sit inside `inputTokens`, so the fix belongs
+upstream (`strands-agents/harness-sdk`); a local de-overlap would be a workaround to
+unpick later. Tracked in issue #6, which carries the evidence, what's needed upstream and
+the checklist for this file. Until a fixed SDK ships, read an OpenAI agent's spend figure
+as an upper bound.
 
 #### Where the rates come from
 
@@ -263,8 +269,8 @@ Every numeric on a summary row is **written by the runtime and not shape-validat
 ingest** (see CLAUDE.md's within-tenant ingest residual), so the read side coerces: a
 missing or non-numeric field contributes `0` (or `1`, for `invocations`) rather than
 `NaN`. One `NaN` would propagate through every sum, percentile and bucket and render the
-whole window as `null` on the wire. `normalizeUsage` does that coercion for the token
-bundle (`costFor` and `tokenTotal` harden their inputs too), and the run-list projection
+whole window as `null` on the wire. Both read paths coerce the token bundle field by
+field (`costFor` and `tokenTotal` harden their inputs too), and the run-list projection
 defaults the same fields.
 
 ### The UI

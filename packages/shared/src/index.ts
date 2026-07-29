@@ -12,18 +12,7 @@
 // so consumers keep importing everything from `@agency/shared`; also imported for
 // this file's own use (e.g. `ModelKey` in AgentConfig below).
 import type { ModelKey, TokenUsage } from "./models.js";
-export {
-  MODELS,
-  MODEL_KEYS,
-  MODEL_INFO,
-  MODEL_PRICING,
-  costFor,
-  tokenTotal,
-  zeroTokens,
-  normalizeUsage,
-  inputIncludesCacheRead,
-  isModelAllowedInNetworkMode,
-} from "./models.js";
+export { MODELS, MODEL_KEYS, MODEL_INFO, MODEL_PRICING, costFor, tokenTotal, zeroTokens, isModelAllowedInNetworkMode } from "./models.js";
 export type { ModelKey, ModelProvider, ModelFamily, ModelInfo, ModelPrice, TokenUsage } from "./models.js";
 
 // Authorization scopes - another leaf module (see scopes.ts), re-exported so

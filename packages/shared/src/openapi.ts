@@ -1327,9 +1327,9 @@ function buildSchemas() {
   TokenUsage: {
     type: "object",
     description:
-      "Token usage counters - the four LLM billing drivers, disjoint (each token " +
-      "counted once, so the total is their sum). Cache reads a provider reports inside " +
-      "its input count are subtracted out before you see them.",
+      "Token usage counters - the four LLM billing drivers, summed and priced as if " +
+      "disjoint. An OpenAI model's cache reads are also counted inside inputTokens by " +
+      "the provider, so those rows over-report; see the repo's issue #6.",
     properties: {
       inputTokens: { type: "integer" },
       outputTokens: { type: "integer" },
@@ -1353,7 +1353,7 @@ function buildSchemas() {
       turns: { type: "integer" },
       toolUses: { type: "integer" },
       outcome: { type: "string", enum: ["ok", "error"] },
-      totalTokens: { type: "integer", description: "The four disjoint token drivers summed." },
+      totalTokens: { type: "integer", description: "The four token drivers summed." },
       costUsd: {
         type: "number",
         description:
@@ -1436,7 +1436,7 @@ function buildSchemas() {
           "`call_integration:<integration name>`, so each downstream API is its own key.",
       },
       tokens: ref("TokenUsage"),
-      totalTokens: { type: "integer", description: "Sum of the four disjoint token drivers over the window." },
+      totalTokens: { type: "integer", description: "Sum of the four token drivers over the window." },
       costUsd: { type: "number", description: "Total dollar cost over the window (per-model priced)." },
       avgCostUsd: { type: "number", description: "Mean per-session dollar cost over the window." },
       p50CostUsd: { type: "number", description: "Median per-session dollar cost." },

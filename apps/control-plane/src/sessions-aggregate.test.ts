@@ -207,35 +207,6 @@ describe("aggregate", () => {
     expect(out.p99CostUsd).toBeCloseTo(5.5, 6);
   });
 
-  it("doesn't double-count an OpenAI row's cache reads (they sit inside inputTokens)", () => {
-    // Bedrock reports the four drivers disjoint; OpenAI counts cache hits INSIDE
-    // input_tokens (see docs/metrics.md for both sources). Both rows below claim
-    // the same shape, so summing them the same way charges the OpenAI cache hits twice:
-    // once at the input rate and again at the cache-read rate.
-    const tokens = { inputTokens: 1_000_000, outputTokens: 0, cacheReadTokens: 900_000, cacheWriteTokens: 0 };
-    const openai = aggregate(
-      [session({ endedAt: "2026-07-20T10:00:00Z", model: "gpt-5.6-luna", tokens })],
-      from, to, "hour", null,
-    );
-    const bedrock = aggregate(
-      [session({ endedAt: "2026-07-20T10:00:00Z", model: "haiku-4.5", tokens })],
-      from, to, "hour", null,
-    );
-
-    // OpenAI: 100_000 tokens were actually new input, 900_000 were a cache hit.
-    expect(openai.tokens.inputTokens).toBe(100_000);
-    expect(openai.totalTokens).toBe(1_000_000);
-    // luna: $1/MTok input, $0.10/MTok cached → 0.1*1 + 0.9*0.1 = $0.19
-    expect(openai.costUsd).toBeCloseTo(0.19, 6);
-
-    // Bedrock: nothing subtracted - a real Anthropic row has cacheRead far ABOVE
-    // inputTokens, so the same subtraction would zero out its input.
-    expect(bedrock.tokens.inputTokens).toBe(1_000_000);
-    expect(bedrock.totalTokens).toBe(1_900_000);
-    // haiku: $1.10/MTok input, $0.11/MTok cached → 1*1.1 + 0.9*0.11 = $1.199
-    expect(bedrock.costUsd).toBeCloseTo(1.199, 6);
-  });
-
   it("treats legacy rows (no tokens/model) as zero tokens and zero cost", () => {
     const legacy = session({ endedAt: "2026-07-20T10:00:00Z" });
     const out = aggregate([legacy], from, to, "hour", null);

@@ -1,15 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  MODELS,
-  MODEL_KEYS,
-  MODEL_INFO,
-  MODEL_PRICING,
-  costFor,
-  tokenTotal,
-  normalizeUsage,
-  inputIncludesCacheRead,
-  isModelAllowedInNetworkMode,
-} from "./index.js";
+import { MODELS, MODEL_KEYS, MODEL_INFO, MODEL_PRICING, costFor, isModelAllowedInNetworkMode } from "./index.js";
 
 describe("MODELS map integrity", () => {
   it("every model key has a MODEL_INFO + MODEL_PRICING entry (no map drifts out of sync)", () => {
@@ -104,64 +94,5 @@ describe("costFor", () => {
     for (const key of ["constructor", "toString", "valueOf", "__proto__"]) {
       expect(costFor(key, tokens)).toBe(0);
     }
-  });
-});
-
-describe("normalizeUsage - the two providers' cache conventions", () => {
-  const openaiModel = MODEL_KEYS.find((k) => MODELS[k].provider === "openai")!;
-  const bedrockModel = MODEL_KEYS.find((k) => MODELS[k].provider === "bedrock")!;
-
-  it("subtracts cache reads from input for a provider that counts them inside it", () => {
-    // Numbers are AWS's own documented Mantle/Responses cache-hit example (Bedrock
-    // user guide, "Cache Management for Models from OpenAI"): `input_tokens: 2048,
-    // output_tokens: 256, total_tokens: 2304, input_tokens_details.cached_tokens: 1920`.
-    // The cached tokens are a SUBSET of input - the provider's own total is input +
-    // output, with the 1920 already inside input. Strands maps `cached_tokens` onto the
-    // same cacheRead field the Bedrock adapter uses, where the drivers are disjoint.
-    // Un-normalized, this bundle used to be summed AND charged twice: once at the input
-    // rate, again at the cache-read rate.
-    const raw = { inputTokens: 2048, outputTokens: 256, cacheReadTokens: 1920, cacheWriteTokens: 0 };
-    const t = normalizeUsage(openaiModel, raw);
-
-    expect(inputIncludesCacheRead(openaiModel)).toBe(true);
-    expect(t.inputTokens).toBe(128); // 2048 - 1920 served from cache
-    expect(tokenTotal(t)).toBe(2304); // == the provider's own total_tokens
-    const p = MODEL_PRICING[openaiModel];
-    expect(costFor(openaiModel, t)).toBeCloseTo((128 * p.inputPerMTok + 256 * p.outputPerMTok + 1920 * p.cacheReadPerMTok) / 1e6);
-  });
-
-  it("leaves a Bedrock row alone - its drivers are already disjoint", () => {
-    // Verified against the wire in eu-north-1: a Converse call with a cache point
-    // returned `{ inputTokens: 13, cacheReadInputTokens: 6002, totalTokens: 6019 }`,
-    // i.e. total = input + output + cache. Subtracting here would be the mirror-image
-    // bug - cacheRead exceeds inputTokens on a real row, so it would zero the input.
-    const raw = { inputTokens: 13, outputTokens: 4, cacheReadTokens: 6002, cacheWriteTokens: 0 };
-    const t = normalizeUsage(bedrockModel, raw);
-
-    expect(inputIncludesCacheRead(bedrockModel)).toBe(false);
-    expect(t).toEqual(raw);
-    expect(tokenTotal(t)).toBe(6019); // == the provider's own totalTokens
-  });
-
-  it("treats an unknown or legacy model as disjoint, and never returns a negative", () => {
-    const raw = { inputTokens: 10, outputTokens: 1, cacheReadTokens: 500, cacheWriteTokens: 0 };
-    expect(inputIncludesCacheRead("no-such-model")).toBe(false);
-    expect(normalizeUsage("", raw).inputTokens).toBe(10);
-    // A self-reported OpenAI row could claim more cache reads than input tokens; the
-    // window's input total must not go negative because of one bad row.
-    expect(normalizeUsage(openaiModel, raw).inputTokens).toBe(0);
-  });
-
-  it("coerces a partial or non-numeric bundle to zeros, never NaN", () => {
-    // Same guarantee the old inline coercion gave both read paths: one NaN propagates
-    // into every total, percentile and bucket, and JSON renders it as `null`.
-    const bad = { inputTokens: "abc", cacheReadTokens: null } as unknown as Parameters<typeof normalizeUsage>[1];
-    expect(normalizeUsage(openaiModel, bad)).toEqual({
-      inputTokens: 0,
-      outputTokens: 0,
-      cacheReadTokens: 0,
-      cacheWriteTokens: 0,
-    });
-    expect(tokenTotal(normalizeUsage(openaiModel, undefined))).toBe(0);
   });
 });

@@ -134,10 +134,12 @@ export const MODEL_PRICING: Record<ModelKey, ModelPrice> = {
  * (not index.ts) because the helpers below operate on it and this file must import
  * nothing - see the header note about the import cycle. Re-exported from index.ts.
  *
- * The four fields are meant to be DISJOINT - each token counted exactly once, so a
- * total is their sum and a cost is four multiplications. A stored row is not
- * guaranteed to be, because providers disagree (see `inputIncludesCacheRead`), so
- * everything read-side goes through `normalizeUsage` first.
+ * The four fields are TREATED as disjoint - each token counted once, so a total is
+ * their sum and a cost is four multiplications. That holds for Bedrock/Converse rows
+ * but NOT for OpenAI ones, where the provider counts cache reads inside `inputTokens`
+ * and Strands passes both conventions through the same field: those rows over-count
+ * and over-charge their cache hits. Deliberately not compensated for here - the fix
+ * belongs in the SDK's `Usage` contract. See issue #6.
  */
 export interface TokenUsage {
   inputTokens: number;
@@ -152,66 +154,13 @@ export function zeroTokens(): TokenUsage {
 }
 
 /**
- * Whether this model's provider counts cache reads INSIDE `inputTokens`.
- *
- * The two providers report prompt-cache hits in opposite conventions, and taking one
- * for the other silently inflates both totals and cost:
- *  - Bedrock/Converse (Anthropic) EXCLUDES them: total input = inputTokens +
- *    cacheRead + cacheWrite (documented on the Converse `TokenUsage` type).
- *  - OpenAI (Responses + Chat) INCLUDES them: `cached_tokens` counts how many of
- *    `input_tokens` came from cache, and the cached rate REPLACES the input rate for
- *    those tokens. Strands maps it onto the same `cacheReadInputTokens` field the
- *    Bedrock adapter uses, so nothing downstream can tell them apart.
- * Keyed off the provider in `MODELS` rather than a per-model flag - it's a property of
- * the endpoint, not the model. An unrecognized model is assumed disjoint (it prices at
- * 0 anyway, and the alternative subtracts tokens a caller never double-counted).
- */
-export function inputIncludesCacheRead(model: string): boolean {
-  return Object.hasOwn(MODELS, model) && MODELS[model as ModelKey].provider === "openai";
-}
-
-/**
- * Coerce a stored, self-reported usage bundle into disjoint drivers - the single
- * read-side entry point for a session row's tokens.
- *
- * Two jobs, both about not lying on the dashboard:
- *  1. De-overlap: where the provider counts cache reads inside `inputTokens`, subtract
- *     them, so `tokenTotal` counts each token once and `costFor` charges the cached
- *     ones at the cache rate INSTEAD of the input rate rather than as well as it. On a
- *     long agent session most input is a cache hit, so this is a multiple, not a rounding
- *     error.
- *  2. Coerce: every numeric on a summary row is written by the runtime and not
- *     shape-validated at ingest, so a missing or non-numeric field must become 0, never
- *     NaN - one NaN propagates into every total, percentile and bucket, and JSON renders
- *     it as `null`.
- *
- * Applied read-side (not at write time) for the same reason cost is: it re-states rows
- * already in the table, so a run recorded before this existed prices correctly on the
- * next dashboard load. `tokenTotal` and `costFor` therefore assume an already-normalized
- * bundle - don't hand them a raw row, and don't normalize twice.
- */
-export function normalizeUsage(model: string, t: Partial<TokenUsage> | undefined): TokenUsage {
-  const n = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
-  const cacheReadTokens = n(t?.cacheReadTokens);
-  const inputTokens = n(t?.inputTokens);
-  return {
-    // max(0): the subtraction rests on a self-reported pair, so a bad row must not
-    // contribute a NEGATIVE input count to the window.
-    inputTokens: inputIncludesCacheRead(model) ? Math.max(0, inputTokens - cacheReadTokens) : inputTokens,
-    outputTokens: n(t?.outputTokens),
-    cacheReadTokens,
-    cacheWriteTokens: n(t?.cacheWriteTokens),
-  };
-}
-
-/**
  * Sum the four billing drivers. Shared so every "total tokens" in the product means
  * the same thing - a fifth driver added to TokenUsage must not leave the run list and
  * the dashboard silently disagreeing.
  *
- * Expects a bundle from `normalizeUsage` (disjoint drivers). Coerces each field anyway:
- * a session summary is self-reported by the runtime, so a partial or non-numeric bundle
- * must total 0, never NaN (one NaN poisons a whole window's sum).
+ * Assumes disjoint drivers, which is wrong for an OpenAI row (see TokenUsage / issue #6).
+ * Coerces each field: a session summary is self-reported by the runtime, so a partial or
+ * non-numeric bundle must total 0, never NaN (one NaN poisons a whole window's sum).
  */
 export function tokenTotal(t: Partial<TokenUsage> | undefined): number {
   return (
@@ -225,8 +174,8 @@ export function tokenTotal(t: Partial<TokenUsage> | undefined): number {
 /**
  * Dollar cost of a token bundle for a model. Unknown model → 0 (tokens still tracked).
  *
- * Expects a bundle from `normalizeUsage`: the drivers must be disjoint, or the cached
- * tokens get charged at the input rate as well as the cache rate.
+ * Assumes disjoint drivers. On an OpenAI row the cached tokens are inside `inputTokens`,
+ * so they are charged at the input rate as well as the cache rate - see issue #6.
  *
  * Coerces each field, like `tokenTotal`: the bundle comes from a self-reported session
  * summary, so a partial or non-numeric one must price as 0 rather than NaN. NaN here

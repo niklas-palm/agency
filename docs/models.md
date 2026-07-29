@@ -99,5 +99,6 @@ model ids they depend on:
   OpenAI's own standard short-context list; only `gpt-oss-*` has a published Bedrock rate
   (identical in eu-north-1 and us-east-1).
 
-How the token counts themselves are normalized - the two providers report prompt-cache hits in
-opposite conventions - is in docs/metrics.md.
+How the token counts themselves are reported - the two providers use opposite prompt-cache
+conventions, and the read side does not currently reconcile them (issue #6) - is in
+docs/metrics.md.

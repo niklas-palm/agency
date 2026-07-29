@@ -298,13 +298,13 @@ the Strands Agent's cumulative
 accumulator (`agent.metrics.accumulatedUsage`) - stored as the latest snapshot, never summed
 (the Meter isn't reset per turn). `GET /agents/:id/metrics?hours=&version=` aggregates these
 into a time-bucketed dashboard (hourly buckets up to 7 days, daily beyond; across all versions,
-or one), pricing cost read-side per session's model from `MODEL_PRICING` (`costFor`). A stored row
-holds whatever the provider reported, and the two providers count prompt-cache hits in OPPOSITE
-conventions (Bedrock excludes them from `inputTokens`; OpenAI counts them inside it), so every
-read path first runs the row through `normalizeUsage` - without it an OpenAI run's cache hits were
-summed and charged twice, which on a long session is a multiple, not a rounding error. The rates
+or one), pricing cost read-side per session's model from `MODEL_PRICING` (`costFor`). The rates
 are Bedrock's geo-profile tier (`eu.` profiles cost 1.1x a `global.` one) and, for the gpt-5.6
-family, OpenAI's own list - AWS publishes no Mantle rate for them. The web Monitor tab (front and
+family, OpenAI's own list - AWS publishes no Mantle rate for them. KNOWN ISSUE: the four token
+fields are summed and priced as disjoint, but OpenAI counts cache reads INSIDE `inputTokens`
+(Bedrock excludes them), so an OpenAI run's cache hits are counted and charged twice - a multiple
+on a long session. The fix belongs in Strands' `Usage` contract, not here; see issue #6. The web
+Monitor tab (front and
 center on the detail page) + the Versions tab render it. See docs/metrics.md.
 
 **Run history** reuses those same rows: `GET /agents/:id/runs` lists past runs newest-first
