@@ -40,6 +40,7 @@ import { buildOpenApiSpec, buildSkill, isScope, isRole, isModelAllowedInNetworkM
 import type { Org, Membership, Invite, Me, OrgMembership, Member } from "@agency/shared";
 import { v7 as uuidv7 } from "uuid";
 import type { Deps } from "./app.js";
+import { debug } from "./log.js";
 import { requireAuth, requireScope, requireUser, type Principal } from "./auth.js";
 import { putOrg, getOrg, deleteOrg } from "./repo/orgs.js";
 import {
@@ -658,6 +659,7 @@ export function buildRoutes(deps: Deps): Hono<Env> {
       return c.json({ error: "invalid trajectory event" }, 400);
     }
     await recordEvent(body as TrajectoryEventInput);
+    debug("trajectory event", { agent: body.agentId, session: body.sessionId, type: body.type });
     return c.body(null, 204);
   });
 
@@ -755,6 +757,15 @@ export function buildRoutes(deps: Deps): Hono<Env> {
     }
 
     const result = await forwardCall(record, body as IntegrationCallRequest);
+    // The downstream status, without the response body (which is tenant data) or the
+    // credential (which this route injects). "error" here is the proxy refusing, not
+    // the API failing - both are worth seeing while wiring an integration up.
+    debug("integration call", {
+      agent: claims.agentId,
+      integration: body.integrationId,
+      operation: body.operationId,
+      status: "error" in result ? "refused" : result.status,
+    });
     if ("error" in result) return c.json(result, 400);
     const res: IntegrationCallResponse = result;
     return c.json(res);
@@ -1913,6 +1924,14 @@ export function buildRoutes(deps: Deps): Hono<Env> {
     // spuriously inject a duplicate prompt into the running turn.
     await bumpInvocation(record.id).catch((e) => console.error("bumpInvocation failed", e));
 
+    debug("invoke", {
+      agent: record.id,
+      session: ack.sessionId,
+      status: ack.status,
+      network: record.config.networkMode ?? "public",
+      model: record.config.model,
+      version: record.version ?? 1,
+    });
     const res: InvokeResponse = { sessionId: ack.sessionId, status: ack.status };
     return c.json(res);
   });
@@ -1932,6 +1951,7 @@ export function buildRoutes(deps: Deps): Hono<Env> {
     const cursor = delta.length ? delta[delta.length - 1]!.cursor : (after ?? null);
 
     const res: PollResponse = { sessionId, status, events: delta, cursor };
+    debug("poll", { agent: record.id, session: sessionId, status, events: delta.length });
     return c.json(res);
   });
 

@@ -217,7 +217,10 @@ Not exhaustive, but these are the ones that matter most:
 - [ ] Decide your retention posture: nine tables and the traces bucket are `RETAIN`,
       trajectories TTL at 30 days, and archived traces are kept FOREVER (no lifecycle
       expiry) - so prompt + tool-IO content accumulates indefinitely. Add a lifecycle rule
-      if your jurisdiction or policy requires bounded retention
+      if your jurisdiction or policy requires bounded retention. CloudWatch logs are the one
+      store already bounded: every group the platform writes to expires at 30 days
+      (`infra/lib/logging.ts`), and the logs deliberately carry ids rather than prompt
+      content - see the Logs section of [docs/deployment.md](docs/deployment.md)
 - [ ] If you federate to an external identity provider, re-read [docs/auth.md](docs/auth.md) -
       the email claim is an authority input for invite acceptance
 

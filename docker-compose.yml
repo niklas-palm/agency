@@ -25,6 +25,10 @@ services:
       # reached separately via MANTLE_REGION (still us-east-1), so no override
       # needed here for that path.
       AWS_REGION: eu-north-1
+      # Verbose logging: every invocation, turn and step, plus each telemetry POST
+      # (see apps/agent-runtime/src/log.ts). Local only - no CDK stack sets DEBUG,
+      # so prod logs failures only. Unset it here for a quiet local run.
+      DEBUG: "1"
       # DDB_ENDPOINT is still set so assertLocalCredentials knows it's local dev
       # (it gates the pasted-creds check); the runtime no longer touches DynamoDB.
       DDB_ENDPOINT: http://dynamodb:8000
@@ -65,6 +69,9 @@ services:
     environment:
       MODE: local
       PORT: "8787"
+      # Verbose logging: every request (not just failures), plus invoke/poll/ingest
+      # detail (see apps/control-plane/src/log.ts). Local only, as above.
+      DEBUG: "1"
       # Matches the prod region; locally it only labels the DynamoDB-Local client
       # (which hits DDB_ENDPOINT, so the region is cosmetic here).
       AWS_REGION: eu-north-1

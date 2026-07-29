@@ -8,6 +8,7 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { IS_LOCAL, USER_POOL_ID } from "./config.js";
+import { logRequest } from "./log.js";
 import { ORG_HEADER } from "./auth.js";
 import type { ScheduleProvisioner } from "./provisioner/schedule.js";
 import { LocalScheduleProvisioner } from "./provisioner/schedule-local.js";
@@ -86,6 +87,16 @@ export function buildApp(deps: Deps = buildDeps()): Hono {
     }),
   );
 
+  // One line per request - failures always, successes only under DEBUG (log.ts).
+  // Registered before the routes so it times the whole handler. A request that
+  // THROWS doesn't reach the log call (the rejection unwinds past it to onError):
+  // that path is logged there instead, which is also where the status is decided.
+  app.use("*", async (c, next) => {
+    const started = Date.now();
+    await next();
+    logRequest(c.req.method, c.req.path, c.res.status, Date.now() - started);
+  });
+
   app.get("/health", (c) => c.json({ ok: true }));
   app.route("/", buildRoutes(deps));
 
@@ -93,9 +104,14 @@ export function buildApp(deps: Deps = buildDeps()): Hono {
   // permanent failure; everything else is a generic 500 (no stack leaked).
   app.onError((err, c) => {
     if (isTransient(err)) {
+      // Logged, not swallowed: a throttle/conflict storm used to be visible only as
+      // 503s on the client side, with nothing in CloudWatch naming which dependency
+      // was throttling. The name is the actionable part (ThrottlingException vs
+      // ConflictException vs TimeoutError).
+      console.error("transient error", c.req.method, c.req.path, (err as Error).name);
       return c.json({ error: "temporarily unavailable, retry shortly" }, 503);
     }
-    console.error("unhandled error", err);
+    console.error("unhandled error", c.req.method, c.req.path, err);
     return c.json({ error: "internal error" }, 500);
   });
 
