@@ -55,7 +55,8 @@ Read [docs/architecture.md](docs/architecture.md) first, then whichever of these
 [triggers](docs/triggers.md) · [models](docs/models.md) · [local dev](docs/local-dev.md) ·
 [deployment](docs/deployment.md).
 
-`CLAUDE.md` is the instruction file for AI coding agents working in this repo. It is dense
+`CLAUDE.md` is the instruction file for AI coding agents working in this repo (`AGENTS.md`
+points to it, for agents that look for that name). It is dense
 and written for that audience, but it is also the most complete single description of how the
 system fits together - including the accepted trade-offs.
 

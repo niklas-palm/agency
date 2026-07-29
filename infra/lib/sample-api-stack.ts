@@ -20,6 +20,7 @@ import { HttpLambdaIntegration } from "aws-cdk-lib/aws-apigatewayv2-integrations
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { expireFunctionLogs } from "./logging.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, "..", "..");
@@ -47,6 +48,8 @@ export class SampleApiStack extends Stack {
         SAMPLE_API_TOKEN: token.secretValue.unsafeUnwrap(), // resolved at deploy into env
       },
     });
+
+    expireFunctionLogs(fn);
 
     const api = new apigw.HttpApi(this, "SampleApi", {
       apiName: "agency-sample-api",

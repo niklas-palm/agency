@@ -12,6 +12,7 @@ import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { COGNITO_DOMAIN_PREFIX, M2M_SCOPE, RESOURCE_SERVER_ID, REGION } from "./config.js";
+import { expireFunctionLogs } from "./logging.js";
 import type { DomainConfig } from "./domain.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -109,6 +110,7 @@ export class AuthStack extends Stack {
       timeout: Duration.seconds(5),
       bundling: { format: "esm" as never, target: "node22" },
     });
+    expireFunctionLogs(preTokenFn);
     this.userPool.addTrigger(
       cognito.UserPoolOperation.PRE_TOKEN_GENERATION_CONFIG,
       preTokenFn,

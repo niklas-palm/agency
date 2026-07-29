@@ -33,6 +33,33 @@ choice: docker-compose pins `AWS_REGION: eu-north-1` because the Anthropic model
 (see `packages/shared/src/models.ts`) - pointing the runtime at us-east-1 makes every model
 call fail.
 
+## Debug logging
+
+`docker-compose.yml` sets `DEBUG=1` on both the control-plane and the agent-runtime, so a
+local run narrates itself:
+
+```
+control-plane  | request POST /agents/ag_…/invoke status=200 ms=41
+control-plane  | debug invoke agent=ag_… session=… status=triggered network=public model=… version=3
+agent-runtime  | debug invocation agent=ag_… session=… status=triggered model=… skills=1 integrations=0 promptChars=62
+agent-runtime  | debug step type=tool_input tool=run_bash
+agent-runtime  | debug ingest path=/internal/trajectory status=204
+agent-runtime  | debug turn complete agent=ag_… session=… run=… ms=8123 tools=3 stopReason=endTurn
+control-plane  | debug poll agent=ag_… session=… status=idle events=7
+```
+
+Unset `DEBUG` in the compose file for a quiet run. With it off (the prod default) both apps
+log **failures only**: a 4xx/5xx request line, an ingest POST that was rejected or given up
+on, a turn that threw. Nothing sets `DEBUG` in CDK, so this is a local-dev convenience, not
+a deployed config surface - see the Logs section of docs/deployment.md for prod retention
+(30 days) and which group to read.
+
+Debug lines carry ids, names, counts and sizes - never prompt text, tool arguments or
+`config.env` values. That's deliberate and worth keeping: the same code paths run in prod,
+where the runtime's stdout lands in a CloudWatch group that is not scoped to the people who
+can see the agent. The trajectory (the Run tab, `GET /agents/:id/sessions/:sessionId`) is
+where content belongs, and it's already there.
+
 ## Web UI
 
 ```bash
@@ -59,7 +86,9 @@ tested without AWS: config validation (`config-validation.ts`), the auth scope d
 Strands stream → trajectory translation
 (`parseStreamEvent`), the model-provider factory, the sandbox path guard (`sandboxed`,
 incl. the sibling-prefix escape regression), the base tools against a real temp dir, and
-the mid-turn injection mailbox/hook (incl. the `MAILBOX_CAP` flood cases).
+the mid-turn injection mailbox/hook (incl. the `MAILBOX_CAP` flood cases). A few tests guard
+*wiring* rather than logic where the wiring is the risk - the ingest routes' grants, and the
+request-log middleware's placement (`log.test.ts`).
 
 ## End-to-end test
 

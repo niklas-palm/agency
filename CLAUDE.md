@@ -7,6 +7,12 @@ immediately with a session id the client polls for status + trajectory. New mess
 working session are **injected mid-turn**. Everything is TypeScript; infra is CDK; auth is
 Cognito.
 
+**This repository is PUBLIC.** Everything you commit - code, comments, commit messages, test
+fixtures - is world-readable the moment it's pushed, and a commit message cannot be retracted
+by a later commit. Read *[This repository is PUBLIC](#this-repository-is-public)* (standing
+rules 18-21) before your first commit here; it is the one section where getting it wrong
+can't be fixed by a follow-up change.
+
 ## Where things live
 
 ```
@@ -44,6 +50,9 @@ infra                CDK: AgencyAuth, AgencyData (agents/trajectory/tokens/versi
                      custom domain is configured - `-c domainName=… -c hostedZoneId=…`;
                      the API's cert is regional and lives in AgencyControlPlane),
                      AgencySampleApi (opt-in, `-c sampleApi=true`).
+                     `logging.ts` puts a 30-day CloudWatch retention on every log group
+                     the platform writes to (Lambda + AgentCore create them, so it's
+                     applied by name).
 scripts              ensure-tables, e2e, models-e2e, mint-m2m-token.
 .github/             CI (typecheck + tests, no AWS creds) + CD on merge to main via OIDC.
                      Two deploy paths: UI-only (build + s3 sync + CDN invalidate) vs full
@@ -54,6 +63,8 @@ docs/                Living documentation - the reference for WHY, and part of e
 README.md            The public front door. LICENSE (Apache-2.0) + NOTICE + SECURITY.md +
                      CONTRIBUTING.md exist for an open-source release; SECURITY.md is where
                      the accepted trade-offs are stated for a deployer.
+AGENTS.md            A pointer to this file, for agents that look for that name instead. It
+                     holds no rules of its own - one file stays the source of truth.
 ```
 
 ## Read the docs
@@ -310,6 +321,27 @@ existed returns `events: []`. The accepted cost is unbounded storage growth and 
 retention of prompt + tool-IO content (see SECURITY.md). The Monitor tab renders the list; opening a row shows the
 same trajectory viewer the live Run tab uses (one line per step, expandable, a tool result folded
 into the call it answers by `toolUseId`).
+
+## Logging
+
+One rule: **failures are always logged, detail is opt-in.** The control-plane logs a line
+per FAILED request (`request <method> <path> status= ms=`) plus transient-dependency 503s
+and unhandled errors; the runtime logs telemetry failures and thrown turns. A success logs
+nothing - clients poll in a loop, and the trajectory is already the durable record of a run.
+
+`DEBUG=1` adds the verbose trace (every request, invoke, poll, step, telemetry POST) via a
+small `log.ts` in EACH app - duplicated deliberately: the two deploy separately and share
+nothing at runtime but the wire types. docker-compose sets it; no CDK stack does, so prod is
+quiet unless someone flips it on a function for a while. Debug lines carry ids, names and
+sizes only - never prompt text, tool arguments or `config.env` values, because a microVM's
+CloudWatch group is readable by anyone with account access while a trajectory is scoped to
+people who can see the agent.
+
+Retention is **30 days on every group we own** (`infra/lib/logging.ts`), matching the
+trajectory TTL. None of the groups is declared by CDK - Lambda and AgentCore create them -
+so retention is set on the existing group by name via `logs.LogRetention`; a new Lambda needs
+an `expireFunctionLogs(fn)` call and `log-retention.test.ts` fails without it. See
+docs/deployment.md (which group holds what) + docs/local-dev.md (the debug flag).
 
 ## The Slack trigger
 

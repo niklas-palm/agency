@@ -450,6 +450,50 @@ The shared runtime is provisioned once by CDK (reaches `READY` shortly after a d
 changes it), so there's no per-agent create→READY wait - an agent is invocable the moment
 it's created. The invoker keeps a short retry only for transient throttling/conflict.
 
+## Logs
+
+Everything writes to CloudWatch, and **every group we own expires after 30 days**
+(`infra/lib/logging.ts` - one constant to change if your policy wants a different horizon).
+None of these groups is declared by
+CDK: Lambda creates `/aws/lambda/<function>` on first invoke and AgentCore creates
+`/aws/bedrock-agentcore/runtimes/<runtimeId>-DEFAULT`, so retention is applied to the
+existing group **by name** with a `logs.LogRetention` custom resource (PutRetentionPolicy).
+It applies from the **first** deploy - the custom resource creates the group with the policy
+already on it if the service hasn't made it yet - so a fresh deployment never accumulates an
+unbounded group.
+A new Lambda therefore needs an `expireFunctionLogs(fn)` call, and
+`infra/lib/log-retention.test.ts` fails if one is forgotten. The groups CDK creates for its
+own deploy-time custom resources (bucket deployment, cross-region export reader,
+auto-delete-objects, and LogRetention's own singleton) are left alone - they log a few KB
+per deploy.
+
+The cost of that mechanism, stated plainly: CDK's `LogRetention` is a deploy-time Lambda
+holding `logs:PutRetentionPolicy` + `logs:DeleteRetentionPolicy` on `*` (CDK hardcodes the
+wildcard - it isn't ours to scope). It can change a retention policy and read nothing, and it
+runs only during a deploy. The alternative is setting retention by hand outside CDK, which
+drifts the moment someone forgets.
+
+Where to look:
+
+| Group | What's in it |
+| --- | --- |
+| `/aws/lambda/…ControlPlaneFn…` | the API. Every failed request (`request <method> <path> status= ms=`), transient-dependency 503s, unhandled errors |
+| `/aws/lambda/…IngestFn…` | telemetry ingest + the integrations/Slack proxies. Start here when a run executed but its trajectory or metrics are missing |
+| `/aws/lambda/…ScheduleTriggerFn…` | scheduled invokes (`schedule fired …`) |
+| `/aws/lambda/…DiscoverySweepFn…` | the daily integration spec refresh |
+| `/aws/lambda/…PreTokenFn…` | sign-in token shaping |
+| `/aws/bedrock-agentcore/runtimes/agency_runtime-…-DEFAULT` | the public agent microVMs - the agent's own stdout/stderr, incl. ingest failures |
+| `/aws/bedrock-agentcore/runtimes/agency_runtime_isolated-…-DEFAULT` | the same for isolated agents |
+
+**What is and isn't logged.** A request that failed is always logged; a successful one is
+not (clients poll in a loop, and the trajectory is the durable record of a run). Setting
+`DEBUG=1` on a function or runtime adds the verbose trace - every request, invoke, poll,
+step and telemetry POST - which is how the local stack runs (see docs/local-dev.md). No
+stack sets it in prod; flipping it on a deployed Lambda is a deliberate, temporary act, and
+CDK will remove it on the next deploy. Debug lines carry ids, names and sizes only - prompt
+text, tool arguments and `config.env` values stay out of CloudWatch, where the audience is
+"anyone with account access" rather than "people who can see the agent".
+
 ## Post-deploy: mint an M2M token (no interactive login)
 
 ```bash

@@ -58,6 +58,7 @@ import * as agentcore from "aws-cdk-lib/aws-bedrockagentcore";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { REGION, WEB_SEARCH_REGION } from "./config.js";
+import { expireFunctionLogs, expireLogGroup } from "./logging.js";
 import type { DomainConfig } from "./domain.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -205,6 +206,7 @@ export class ControlPlaneStack extends Stack {
         API_SCOPE: "agency/api",
       },
     });
+    expireFunctionLogs(ingestFn);
     // Trajectory + sessions: exactly PutItem and Query, spelled out rather than taken from
     // grantReadWriteData/grantWriteData. Those helpers also hand over DeleteItem and
     // BatchWriteItem, which nothing here calls (`recordEvent` appends, `writeSummary`
@@ -455,6 +457,21 @@ export class ControlPlaneStack extends Stack {
     runtime.node.addDependency(runtimePolicyDep);
     runtimeIsolated.node.addDependency(runtimePolicyDep);
 
+    // Expire the microVM logs (the agent's own stdout/stderr - the log you read when
+    // an agent misbehaves) like every other group. AgentCore creates one group per
+    // runtime and CfnRuntime has no retention property, so we name the group it will
+    // create: `<runtimeId>-DEFAULT`, where runtimeId is `<name>-<suffix>`.
+    for (const [id, rt] of [
+      ["AgentRuntime", runtime],
+      ["AgentRuntimeIsolated", runtimeIsolated],
+    ] as const) {
+      expireLogGroup(
+        this,
+        `${id}LogRetention`,
+        `/aws/bedrock-agentcore/runtimes/${rt.attrAgentRuntimeId}-DEFAULT`,
+      );
+    }
+
     // The control-plane API Lambda (the Hono app).
     const issuer = `https://cognito-idp.${REGION}.amazonaws.com/${props.userPool.userPoolId}`;
     const fn = new NodejsFunction(this, "ControlPlaneFn", {
@@ -496,6 +513,8 @@ export class ControlPlaneStack extends Stack {
         USER_POOL_ID: props.userPool.userPoolId,
       },
     });
+
+    expireFunctionLogs(fn);
 
     props.agentsTable.grantReadWriteData(fn);
     // Invites can provision a Cognito login for a new email (idempotent - existing
@@ -571,6 +590,7 @@ export class ControlPlaneStack extends Stack {
         RUNTIME_INGEST_KEY: ingestKeyValue,
       },
     });
+    expireFunctionLogs(triggerFn);
     // Read any agent's config (the schedule passes the agentId) + update the
     // metrics counter via bumpInvocation (an UpdateItem). Scoped to UpdateItem
     // (dropping DeleteItem/PutItem/BatchWrite) narrows the blast radius, but note
@@ -663,6 +683,7 @@ export class ControlPlaneStack extends Stack {
         INTEGRATIONS_TABLE: props.integrationsTable.tableName,
       },
     });
+    expireFunctionLogs(discoverySweepFn);
     // Scan + rewrite discovery-backed integrations (across owners): read to find
     // them, write the refreshed catalog back.
     props.integrationsTable.grantReadWriteData(discoverySweepFn);

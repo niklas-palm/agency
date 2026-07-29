@@ -20,6 +20,7 @@
  * failed" without them is unactionable across a fleet of microVMs.
  */
 import { INGEST_URL } from "./config.js";
+import { debug } from "./log.js";
 
 const TIMEOUT_MS = 5_000;
 
@@ -105,6 +106,7 @@ export async function postIngestRaw(
       signal: controller.signal,
     });
     if (!res.ok) console.error("ingest POST failed", path, logContext, res.status);
+    else debug("ingest", { path, status: res.status });
     const json = await res.json().catch(() => null);
     return { ok: res.ok, status: res.status, json };
   } catch (e) {
