@@ -71,6 +71,11 @@ export interface SlackManifestInput {
   apiOrigin: string;
   /** The agent's id - rides the webhook PATH (see `SlackTrigger`). */
   agentId: string;
+  /**
+   * What to call the bot, if not the agent's name. Sanitized the same way either way - Slack's
+   * charset for a handle is narrow enough that a hand-typed value still needs normalizing.
+   */
+  botName?: string;
 }
 
 /**
@@ -140,7 +145,7 @@ export function slackRequestUrl(apiOrigin: string, agentId: string): string {
  * app looks installed but never delivers an event).
  */
 export function slackManifest(input: SlackManifestInput): Record<string, unknown> {
-  const name = slackAppName(input.agentName);
+  const name = slackAppName(input.botName?.trim() || input.agentName);
   const description =
     input.description?.trim().slice(0, 140) || `An Agency agent. Mention @${name} to run it.`;
   return {
@@ -152,7 +157,7 @@ export function slackManifest(input: SlackManifestInput): Record<string, unknown
     features: {
       bot_user: {
         // NOT `name`: the bot handle has a stricter charset than the app name (see slackBotName).
-        display_name: slackBotName(input.agentName),
+        display_name: slackBotName(input.botName?.trim() || input.agentName),
         // The agent replies in-thread; it doesn't need to appear always-online.
         always_online: false,
       },

@@ -72,7 +72,7 @@ import {
   missingRequiredScopes,
   withSlackVerification,
 } from "./slack-setup.js";
-import { slackManifest, slackNameProblem, slackRequestUrl, SLACK_BOT_SCOPES, slackOf, type SlackTrigger } from "@agency/shared";
+import { slackManifest, slackBotName, slackNameProblem, slackRequestUrl, SLACK_BOT_SCOPES, slackOf, type SlackTrigger } from "@agency/shared";
 import { generateApiKey, verifyApiKey } from "./apikey.js";
 import { generateAccessToken } from "./token.js";
 import {
@@ -1956,13 +1956,17 @@ export function buildRoutes(deps: Deps): Hono<Env> {
       state: slackSetupState(record),
       // A name Slack will refuse or that reads as Slack's own - surfaced BEFORE the user pastes a
       // manifest that fails, since the fix is renaming the agent, not retrying.
-      nameProblem: slackNameProblem(record.config.name),
+      nameProblem: slackNameProblem(trigger.botName || record.config.name),
       manifest: slackManifest({
         agentName: record.config.name,
         description: record.description,
         apiOrigin: PUBLIC_API_URL,
         agentId: record.id,
+        botName: trigger.botName,
       }),
+      // What the handle will actually be, so the UI can show it without re-deriving the rules.
+      botName: trigger.botName ?? record.config.name,
+      effectiveBotName: slackBotName(trigger.botName || record.config.name),
       requestUrl: slackRequestUrl(PUBLIC_API_URL, record.id),
       requestedScopes: [...SLACK_BOT_SCOPES],
       // `hasBotToken` rather than the token: a write-only credential never comes back.
@@ -2047,6 +2051,42 @@ export function buildRoutes(deps: Deps): Hono<Env> {
       botUserId: verified.botUserId,
       grantedScopes: verified.grantedScopes,
     });
+  });
+
+  /**
+   * Name the bot, before the app exists.
+   *
+   * Separate from the agent's name on purpose: that one is for the roster, this is the handle people
+   * type after `@`, and Slack's rules for a handle are much narrower. Rejected once the app has been
+   * created, because Slack fixes the handle at creation - accepting it then would only make our
+   * manifest disagree with the live app, which is exactly the confusion this feature already cost.
+   */
+  app.patch("/agents/:id/slack/bot-name", requireScope("write"), async (c) => {
+    const auth = authorize(c.var.principal, await getAgent(c.req.param("id")), "write", "you can't edit this agent");
+    if (!auth.ok) return c.json({ error: auth.error }, auth.status);
+    const record = auth.record;
+    const trigger = slackOf(record.config);
+    if (!trigger) return c.json({ error: "this agent has no Slack trigger" }, 404);
+    if (trigger.teamId) {
+      return c.json(
+        {
+          error: "the Slack app already exists, so its name is fixed",
+          hint:
+            "Slack sets the bot's handle when the app is created. Rename it in Slack's own app " +
+            "settings, or Disconnect and create a new app to change it here.",
+        },
+        409,
+      );
+    }
+
+    const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+    const botName = typeof body?.botName === "string" ? body.botName.trim() : "";
+    if (!botName) return c.json({ error: "botName is required" }, 400);
+    const problem = slackNameProblem(botName);
+    if (problem) return c.json({ error: problem }, 400);
+
+    await updateSlackTrigger(record, { botName });
+    return c.json({ botName, effectiveBotName: slackBotName(botName) });
   });
 
   /** The channels the bot can see, for the setup picker. Read-only; no state change. */

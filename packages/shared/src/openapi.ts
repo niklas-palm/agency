@@ -165,6 +165,28 @@ export function buildOpenApiSpec(serverUrl: string) {
           },
         },
       },
+      "/agents/{id}/slack/bot-name": {
+        parameters: [ORG_HEADER_PARAM, pathParam("id", "Agent id.")],
+        patch: {
+          tags: ["Agents"],
+          summary: "Name the Slack bot",
+          description:
+            "Sets the handle people @-mention, which defaults to the agent's name but is a separate " +
+            "thing: Slack allows only `a-z 0-9 - _ .` in a handle and reserves anything starting " +
+            "`slack`. Refused with 409 once the app exists, because Slack fixes the handle at " +
+            "app-creation - a later rename would only desync the manifest from the live app.",
+          security: [{ accountToken: [] }],
+          requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { botName: { type: "string" } }, required: ["botName"] } } } },
+          responses: {
+            "200": jsonResponse("The stored name and its sanitized handle.", "SlackBotNameResponse"),
+            "400": jsonResponse("Missing, or a name Slack won't accept.", "Error"),
+            "401": UNAUTHORIZED,
+            "403": FORBIDDEN,
+            "404": jsonResponse("No Slack trigger on this agent.", "Error"),
+            "409": jsonResponse("The app already exists; its name is fixed.", "Error"),
+          },
+        },
+      },
       "/agents/{id}/slack/credentials": {
         parameters: [ORG_HEADER_PARAM, pathParam("id", "Agent id.")],
         patch: {
@@ -951,6 +973,14 @@ function buildSchemas() {
       channels: { type: "array", items: { type: "string" } },
     },
     required: ["state", "manifest", "requestUrl", "requestedScopes", "hasBotToken", "urlVerified", "channels"],
+  },
+  SlackBotNameResponse: {
+    type: "object",
+    properties: {
+      botName: { type: "string", description: "As stored." },
+      effectiveBotName: { type: "string", description: "Sanitized to Slack's handle charset." },
+    },
+    required: ["botName", "effectiveBotName"],
   },
   SlackCredentialsInput: {
     type: "object",

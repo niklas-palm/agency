@@ -171,6 +171,27 @@ describe("slackManifest", () => {
   });
 
   /** A token that can do more than the code does is blast radius the feature never uses. */
+  /**
+   * The agent's name is a default, not a constraint. It's the roster label; the handle is what
+   * people type after `@`, and Slack's rules for a handle are much narrower - so a deployer has to
+   * be able to name the bot separately.
+   */
+  it("prefers an explicit botName over the agent's name", () => {
+    const m = slackManifest({ ...input, agentName: "Research Assistant", botName: "ask-me" }) as Record<string, any>;
+    expect(m.display_information.name).toBe("ask-me");
+    expect(m.features.bot_user.display_name).toBe("ask-me");
+  });
+
+  it("sanitizes an explicit botName too - a hand-typed one still breaks Slack's rules", () => {
+    const m = slackManifest({ ...input, botName: "Deploy Bot!" }) as Record<string, any>;
+    expect(m.features.bot_user.display_name).toBe("deploy-bot");
+  });
+
+  it("falls back to the agent name when botName is blank", () => {
+    const m = slackManifest({ ...input, agentName: "deploy-helper", botName: "   " }) as Record<string, any>;
+    expect(m.features.bot_user.display_name).toBe("deploy-helper");
+  });
+
   it("names the app as written but the bot handle sanitized", () => {
     const m = slackManifest({ ...input, agentName: "Deploy Bot" }) as Record<string, any>;
     // The app name keeps the user's capitalisation and spaces - Slack allows both here.

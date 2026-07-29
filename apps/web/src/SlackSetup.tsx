@@ -13,6 +13,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Copy, ExternalLink, Loader2, RefreshCw } from "lucide-react";
 import {
   disconnectSlack,
+  putSlackBotName,
   getSlackSetup,
   listSlackChannels,
   putSlackChannels,
@@ -158,7 +159,14 @@ export function SlackSetup({ agentId, canWrite }: { agentId: string; canWrite: b
         <LivePanel setup={setup} canWrite={canWrite} agentId={agentId} onChange={load} />
       ) : (
         <>
-          <CreateAppStep setup={setup} done={current > 0} stalled={waitedTooLong} onRecheck={load} />
+          <CreateAppStep
+            setup={setup}
+            done={current > 0}
+            stalled={waitedTooLong}
+            onRecheck={load}
+            agentId={agentId}
+            canWrite={canWrite}
+          />
           {current >= 1 && (
             <InstallStep setup={setup} agentId={agentId} canWrite={canWrite} onDone={load} done={current > 1} />
           )}
@@ -234,11 +242,15 @@ function CreateAppStep({
   done,
   stalled,
   onRecheck,
+  agentId,
+  canWrite,
 }: {
   setup: Setup;
   done: boolean;
   stalled: boolean;
   onRecheck: () => void;
+  agentId: string;
+  canWrite: boolean;
 }) {
   if (done) return <Panel title="" receipt="Slack app created, and Slack has reached this agent's webhook." />;
   if (setup.nameProblem) {
@@ -263,6 +275,7 @@ function CreateAppStep({
         contains the permissions, the events to subscribe to, and this agent's webhook URL - there's
         nothing to configure afterwards.
       </p>
+      <BotNameField setup={setup} agentId={agentId} canWrite={canWrite} onSaved={onRecheck} />
       <CopyBlock label="App manifest" value={JSON.stringify(setup.manifest, null, 2)} multiline />
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <a className="btn" href={CREATE_APP_URL} target="_blank" rel="noreferrer">
@@ -881,6 +894,72 @@ function Disconnect({ agentId, onDone }: { agentId: string; onDone: () => void }
           Yes, disconnect
         </button>
       </div>
+      {err && <p className="mt-1.5 text-xs text-danger">{err}</p>}
+    </div>
+  );
+}
+
+/**
+ * The bot's handle, editable until the app exists.
+ *
+ * Defaults to the agent's name, which is usually right - but the two aren't the same thing. The
+ * agent name is for the roster; this is what people type after `@`, and Slack's rules for it are
+ * much narrower (`a-z 0-9 - _ .`, no capitals or spaces, nothing starting "slack"). Showing the
+ * sanitized result live matters: otherwise you type "Deploy Bot" and only discover it became
+ * "deploy-bot" after the app is created, when it's fixed.
+ */
+function BotNameField({
+  setup,
+  agentId,
+  canWrite,
+  onSaved,
+}: {
+  setup: Setup;
+  agentId: string;
+  canWrite: boolean;
+  onSaved: () => void;
+}) {
+  const [value, setValue] = useState(setup.botName ?? "");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const dirty = value.trim() !== (setup.botName ?? "").trim();
+
+  const save = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await putSlackBotName(agentId, value.trim());
+      onSaved();
+    } catch (e) {
+      setErr(parseApiError(e, "could not save the name").error);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mb-4">
+      <div className="label mb-1.5">Bot name</div>
+      <div className="flex gap-2">
+        <input
+          className="field flex-1"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && dirty && void save()}
+          placeholder={setup.botName ?? "deploy-helper"}
+          disabled={!canWrite || busy}
+        />
+        <button className="btn btn-ghost" type="button" disabled={!canWrite || busy || !dirty} onClick={() => void save()}>
+          {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Save
+        </button>
+      </div>
+      <p className="mt-1.5 text-[11px] text-muted">
+        People will type{" "}
+        <code className="font-mono text-ink">@{setup.effectiveBotName ?? setup.botName}</code>. Slack
+        allows only lowercase letters, digits, <code className="font-mono">-</code>,{" "}
+        <code className="font-mono">_</code> and <code className="font-mono">.</code> in a handle, so
+        anything else is converted. Set it before creating the app - Slack fixes the handle then.
+      </p>
       {err && <p className="mt-1.5 text-xs text-danger">{err}</p>}
     </div>
   );

@@ -93,6 +93,18 @@ export interface SlackTrigger {
    * Channel ids (`C…`/`G…`) the agent will answer in. Empty = answer nowhere (fail closed),
    * unless `allChannels` is set.
    */
+  /**
+   * What the bot is called in Slack, if it should differ from the agent's name.
+   *
+   * The agent's name is a sensible default but not the same thing: the agent name is for the
+   * roster, this is the handle people type after `@`. Slack constrains a handle far more
+   * (`a-z 0-9 - _ .`, no spaces or capitals) and reserves anything starting `slack`, so a good
+   * agent name is often a poor handle - the deployer has to be able to say so.
+   *
+   * Set before the app is created and not meaningfully changeable after: Slack fixes the handle at
+   * app-creation time, so editing this later only makes our manifest disagree with the live app.
+   */
+  botName?: string;
   channels: string[];
   /**
    * Answer in ANY channel the bot is invited to, ignoring `channels`.

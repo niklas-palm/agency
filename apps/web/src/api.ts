@@ -167,6 +167,10 @@ export interface SlackSetup {
   allChannels: boolean;
   /** Set when the agent's name would be refused by Slack, or is confusing as a handle. */
   nameProblem?: string | null;
+  /** What the bot will be called - the agent's name unless overridden. */
+  botName?: string;
+  /** The same, sanitized to Slack's handle charset: what people will actually type after `@`. */
+  effectiveBotName?: string;
 }
 
 export async function getSlackSetup(id: string): Promise<SlackSetup> {
@@ -188,6 +192,20 @@ export async function putSlackCredentials(
 }
 
 /** Set the channel allowlist. Each id is validated against the connected workspace. */
+/** Name the bot. Only before the app exists - Slack fixes the handle at creation. */
+export async function putSlackBotName(
+  id: string,
+  botName: string,
+): Promise<{ botName: string; effectiveBotName: string }> {
+  return managed(() =>
+    fetch(`${BASE}/agents/${id}/slack/bot-name`, {
+      method: "PATCH",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({ botName }),
+    }),
+  );
+}
+
 /** Forget the Slack app entirely: clears the credentials and everything it taught us. */
 export async function disconnectSlack(id: string): Promise<void> {
   await managedVoid(() =>

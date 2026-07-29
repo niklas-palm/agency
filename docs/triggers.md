@@ -90,6 +90,20 @@ The manifest is complete on purpose - scopes, the `app_mention` subscription, an
 own webhook URL are all baked in. A "manifest minus events" approach leaves the user to enable
 things by hand, and when they forget, the app looks installed but never delivers.
 
+### Naming the bot
+
+The handle people type after `@` defaults to the agent's name but is **separately settable**
+(`botName` on the trigger, `PATCH /agents/:id/slack/bot-name`). They aren't the same thing: the
+agent name is a roster label, while the handle is a Slack identifier with much narrower rules -
+`a-z 0-9 - _ .` only, no capitals or spaces, and nothing starting `slack` (reserved, and
+`@slack-deploy` reads as something Slack ships). A good agent name is often a poor handle.
+
+The setup panel shows the sanitized result live, because the alternative is typing "Deploy Bot",
+creating the app, and only then discovering the handle became `deploy-bot` - at which point Slack
+has fixed it. For the same reason the endpoint **refuses** once `teamId` is set: accepting a rename
+after the app exists would only make our manifest disagree with the live app, which is a confusion
+this feature has already paid for once.
+
 ### Setup does NOT mint config versions
 
 Connecting Slack, storing credentials, picking channels and toggling the allowlist all write the

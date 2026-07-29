@@ -150,6 +150,9 @@ export function parseTriggers(value: unknown): Trigger[] | null {
           : {}),
         ...(t.urlVerified === true ? { urlVerified: true } : {}),
         ...(t.allChannels === true ? { allChannels: true } : {}),
+        ...(typeof t.botName === "string" && t.botName.trim()
+          ? { botName: t.botName.trim().slice(0, MAX_SLACK_NAME) }
+          : {}),
       };
       out.push(slack);
       continue;
