@@ -464,8 +464,8 @@ unbounded group.
 A new Lambda therefore needs an `expireFunctionLogs(fn)` call, and
 `infra/lib/log-retention.test.ts` fails if one is forgotten. The groups CDK creates for its
 own deploy-time custom resources (bucket deployment, cross-region export reader,
-auto-delete-objects, and LogRetention's own singleton) are left alone - they log a few KB
-per deploy.
+auto-delete-objects) are left alone - they log a few KB per deploy. The retention Lambda's
+own group needs nothing from us: CDK gives that one a 1-day retention itself.
 
 The cost of that mechanism, stated plainly: CDK's `LogRetention` is a deploy-time Lambda
 holding `logs:PutRetentionPolicy` + `logs:DeleteRetentionPolicy` on `*` (CDK hardcodes the
