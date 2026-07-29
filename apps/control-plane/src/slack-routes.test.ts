@@ -196,6 +196,45 @@ describe("POST /webhooks/slack/:agentId", () => {
     expect(dispatch).not.toHaveBeenCalled();
   });
 
+  /**
+   * `allChannels` deliberately hands the gate to whoever can /invite the bot, so it must actually
+   * bypass the list - and, more importantly, must NOT be inferable from anything an attacker
+   * controls. It's a stored config flag; nothing in the payload can set it.
+   */
+  it("answers a channel outside the list when allChannels is set", async () => {
+    const base = record();
+    getAgent.mockResolvedValue({
+      ...base,
+      config: {
+        ...base.config,
+        triggers: [
+          { type: "api" },
+          { type: "slack", channels: [], allChannels: true, botUserId: BOT_USER },
+        ],
+      } as unknown as AgentConfig,
+    });
+    const { app, dispatch } = buildApp();
+    const res = await app.fetch(signedRequest(mention({ channel: "C0000000999" })));
+    expect(res.status).toBe(200);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(dispatch).toHaveBeenCalledTimes(1);
+  });
+
+  it("still drops the bot's own message when allChannels is set (the loop guard is separate)", async () => {
+    const base = record();
+    getAgent.mockResolvedValue({
+      ...base,
+      config: {
+        ...base.config,
+        triggers: [{ type: "api" }, { type: "slack", channels: [], allChannels: true, botUserId: BOT_USER }],
+      } as unknown as AgentConfig,
+    });
+    const { app, dispatch } = buildApp();
+    const res = await app.fetch(signedRequest(mention({ channel: "C0000000999", bot_id: "B1" })));
+    expect(await res.json()).toMatchObject({ dropped: "own_bot_event" });
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
   it("drops the bot's own message (loop guard)", async () => {
     const { app, dispatch } = buildApp();
     const res = await app.fetch(signedRequest(mention({ user: BOT_USER })));

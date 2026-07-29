@@ -328,7 +328,8 @@ secret. **One thread = one session** (`slack-<channel>-<threadTs>`), so a follow
 holds the bot token: `slack_reply`/`slack_set_status` are wired only when the payload carries
 `fromSlack`, and the control-plane derives the reply target from the session token, so there's
 no channel argument to poison. The channel allowlist is a security control (anyone who can
-`/invite` the bot can direct the agent); empty means answer nowhere. See docs/triggers.md.
+`/invite` the bot can direct the agent); empty means answer nowhere, and the opt-in
+`allChannels` deliberately delegates the gate to whoever can `/invite`. See docs/triggers.md.
 
 ## Skills + integrations + env vars
 

@@ -187,6 +187,13 @@ every id is validated against the connected workspace at save time (`conversatio
 because channel ids are workspace-scoped and a foreign one produces an agent that looks
 configured and silently ignores every mention.
 
+**`allChannels` is the opt-out**, off by default: the agent then answers wherever the bot is
+invited, which hands the gate to whoever can `/invite` it. That's the right call for a private
+workspace or a low-privilege agent and the wrong one for an agent with powerful integrations,
+which is why the UI labels the trade rather than presenting it as a convenience. All three
+decision points honour it - the webhook gate, the proxy's mid-thread re-check, and the
+setup-state derivation (an agent with `allChannels` is `live` without an explicit list).
+
 Private channels are supported - the manifest requests `groups:read`, which is what lets a private
 channel be validated at setup. **The bot must be `/invite`d to any channel, public or private:**
 Slack only delivers `app_mention` to an app that's in the conversation, so a channel it hasn't

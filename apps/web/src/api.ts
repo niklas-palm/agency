@@ -162,6 +162,7 @@ export interface SlackSetup {
   grantedScopes?: string[];
   urlVerified: boolean;
   channels: string[];
+  allChannels: boolean;
 }
 
 export async function getSlackSetup(id: string): Promise<SlackSetup> {
@@ -183,15 +184,23 @@ export async function putSlackCredentials(
 }
 
 /** Set the channel allowlist. Each id is validated against the connected workspace. */
+/** The channels the bot can see, for the picker. Needs no extra Slack scope. */
+export async function listSlackChannels(
+  id: string,
+): Promise<{ channels: { id: string; name: string; isPrivate: boolean; isMember?: boolean }[]; truncated: boolean }> {
+  return managed(() => fetch(`${BASE}/agents/${id}/slack/channels`, { headers: authHeaders() }));
+}
+
 export async function putSlackChannels(
   id: string,
   channels: string[],
-): Promise<{ channels: { id: string; name: string; isPrivate: boolean }[] }> {
+  allChannels = false,
+): Promise<{ channels: { id: string; name: string; isPrivate: boolean }[]; allChannels: boolean }> {
   return managed(() =>
     fetch(`${BASE}/agents/${id}/slack/channels`, {
       method: "PATCH",
       headers: { ...authHeaders(), "content-type": "application/json" },
-      body: JSON.stringify({ channels }),
+      body: JSON.stringify({ channels, allChannels }),
     }),
   );
 }

@@ -166,6 +166,21 @@ describe("callSlack", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("allows a reply outside the list when allChannels is set", async () => {
+    // The token carries the channel, but the allowlist is re-read on every call - so this flag
+    // has to be honoured here too, or a reply would fail after the run had already started.
+    const base = record({ channels: [] });
+    getAgent.mockResolvedValue({
+      ...base,
+      config: {
+        ...base.config,
+        triggers: [{ type: "api" }, { type: "slack", channels: [], allChannels: true }],
+      } as unknown as AgentConfig,
+    });
+    const res = await callSlack("agent-000000", SESSION, { action: "reply", text: "hi" });
+    expect(res).toMatchObject({ ok: true });
+  });
+
   it("returns an error+hint (never throws) when Slack is not configured", async () => {
     getAgent.mockResolvedValue(record({ botToken: null }));
     const res = await callSlack("agent-000000", SESSION, { action: "reply", text: "x" });

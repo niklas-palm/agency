@@ -13,10 +13,38 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Copy, ExternalLink, Loader2, RefreshCw } from "lucide-react";
 import {
   getSlackSetup,
+  listSlackChannels,
   putSlackChannels,
   putSlackCredentials,
   type SlackSetup as Setup,
 } from "./api.js";
+
+/** One channel as the picker shows it. */
+interface SlackChannel {
+  id: string;
+  name: string;
+  isPrivate: boolean;
+  /** Slack delivers a mention only to an app that's IN the channel, so this drives a warning. */
+  isMember?: boolean;
+}
+
+/**
+ * The server sends `{error, hint}`; `api.ts` throws it as `"<status>: <body>"`, so recover the
+ * structured payload. Extracted because both forms in this file did it, and the hints are the
+ * most useful text on the page (they name the fix, e.g. "invite the app first").
+ */
+function parseApiError(e: unknown, fallback: string): { error: string; hint?: string } {
+  const raw = e instanceof Error ? e.message : "";
+  const json = raw.match(/\{.*\}/)?.[0];
+  if (json) {
+    try {
+      return JSON.parse(json) as { error: string; hint?: string };
+    } catch {
+      // fall through to the raw text
+    }
+  }
+  return { error: raw || fallback };
+}
 
 /** Slack's "create from manifest" entry point. Opens the paste box directly. */
 const CREATE_APP_URL = "https://api.slack.com/apps?new_app=1";
@@ -286,14 +314,7 @@ function InstallStep({
       setSigningSecret("");
       onDone();
     } catch (e) {
-      // The server sends {error, hint}; surface the hint, since it names the fix.
-      const raw = e instanceof Error ? e.message : "";
-      const parsed = raw.match(/\{.*\}/)?.[0];
-      try {
-        setErr(parsed ? (JSON.parse(parsed) as { error: string; hint?: string }) : { error: raw });
-      } catch {
-        setErr({ error: raw || "could not save the credentials" });
-      }
+      setErr(parseApiError(e, "could not save the credentials"));
     } finally {
       setBusy(false);
     }
@@ -366,6 +387,15 @@ function InstallStep({
   );
 }
 
+/**
+ * Where the agent may answer: a picker over the channels the bot can actually see, plus the
+ * escape hatch for people who don't want to curate a list.
+ *
+ * The picker matters for correctness, not just convenience. It shows whether the bot is IN each
+ * channel - Slack delivers a mention only to an app that's in the conversation, so a channel it
+ * hasn't joined is the one thing that looks configured here and silently ignores every mention.
+ * Typing an id can't tell you that; the list can.
+ */
 function ChannelStep({
   setup,
   agentId,
@@ -377,55 +407,113 @@ function ChannelStep({
   canWrite: boolean;
   onDone: () => void;
 }) {
-  const [input, setInput] = useState("");
+  const [available, setAvailable] = useState<SlackChannel[] | null>(null);
+  const [truncated, setTruncated] = useState(false);
+  const [listErr, setListErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<{ error: string; hint?: string } | null>(null);
 
-  const add = async () => {
-    const id = input.trim();
-    if (!id) return;
+  // Load once. A failure is not fatal - the id field below still works, which is why the picker
+  // is an enhancement rather than the only route.
+  useEffect(() => {
+    let stop = false;
+    listSlackChannels(agentId)
+      .then((r) => {
+        if (stop) return;
+        setAvailable(r.channels);
+        setTruncated(r.truncated);
+      })
+      .catch((e) => !stop && setListErr(e instanceof Error ? e.message : "could not list channels"));
+    return () => {
+      stop = true;
+    };
+  }, [agentId]);
+
+  const save = async (channels: string[], allChannels = setup.allChannels) => {
     setBusy(true);
     setErr(null);
     try {
-      await putSlackChannels(agentId, [...setup.channels, id]);
-      setInput("");
+      await putSlackChannels(agentId, channels, allChannels);
       onDone();
     } catch (e) {
-      const raw = e instanceof Error ? e.message : "";
-      const parsed = raw.match(/\{.*\}/)?.[0];
-      try {
-        setErr(parsed ? (JSON.parse(parsed) as { error: string; hint?: string }) : { error: raw });
-      } catch {
-        setErr({ error: raw || "could not add the channel" });
-      }
+      setErr(parseApiError(e, "could not save the channels"));
     } finally {
       setBusy(false);
     }
   };
 
+  const toggle = (id: string) =>
+    void save(
+      setup.channels.includes(id) ? setup.channels.filter((c) => c !== id) : [...setup.channels, id],
+    );
+
   return (
     <Panel title="3. Choose where it can answer">
       <p className="mb-3 text-xs text-muted">
-        The agent only answers in channels you list here. This is a real limit, not a filter:
-        anyone who can invite the bot to a channel can direct the agent, so keep the list to
-        channels you're happy with that.
+        This is a real limit, not a filter: anyone who can invite the bot to a channel can direct
+        the agent, so keep it to channels you're happy with that.
       </p>
-      <ChannelList channels={setup.channels} />
-      <div className="mt-3 flex gap-2">
+
+      <label className="mb-3 flex items-start gap-2.5 rounded-md border border-line bg-canvas px-3 py-2.5">
         <input
-          className="field flex-1"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void add();
-          }}
-          placeholder="C0123456789"
+          type="checkbox"
+          className="mt-0.5"
+          checked={setup.allChannels}
           disabled={!canWrite || busy}
+          onChange={(e) => void save(setup.channels, e.target.checked)}
         />
-        <button className="btn" disabled={!canWrite || busy || !input.trim()} onClick={() => void add()}>
-          {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Add
-        </button>
+        <span className="text-xs">
+          <span className="font-medium text-ink">Answer anywhere the bot is invited</span>
+          <span className="block text-[11px] text-muted">
+            Skips the list below. Convenient for a private workspace; think twice for an agent with
+            powerful integrations, since inviting the bot then becomes the only gate.
+          </span>
+        </span>
+      </label>
+
+      <div className={setup.allChannels ? "pointer-events-none opacity-45" : undefined}>
+        {available === null && !listErr ? (
+          <p className="flex items-center gap-1.5 text-xs text-muted">
+            <Loader2 className="h-3 w-3 animate-spin" /> Loading channels…
+          </p>
+        ) : available && available.length ? (
+          <div className="max-h-56 space-y-0.5 overflow-y-auto rounded-md border border-line bg-canvas p-1.5">
+            {available.map((ch) => (
+              <label
+                key={ch.id}
+                className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs transition-colors hover:bg-raised"
+              >
+                <input
+                  type="checkbox"
+                  checked={setup.channels.includes(ch.id)}
+                  disabled={!canWrite || busy}
+                  onChange={() => toggle(ch.id)}
+                />
+                <span className="text-ink">
+                  {ch.isPrivate ? "🔒" : "#"}
+                  {ch.name}
+                </span>
+                {ch.isMember === false && (
+                  <span className="ml-auto text-[10px] text-muted" title="Slack won't deliver mentions until the bot joins">
+                    not joined - /invite it
+                  </span>
+                )}
+              </label>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-muted">
+            {listErr ? "Couldn't list channels - paste an id below instead." : "No channels found."}
+          </p>
+        )}
+        {truncated && (
+          <p className="mt-1.5 text-[11px] text-muted">
+            Showing the first 200 channels. Paste an id below for one that isn't listed.
+          </p>
+        )}
+        <ChannelIdInput onAdd={(id) => void save([...setup.channels, id])} disabled={!canWrite || busy} />
       </div>
+
       {err && (
         <div className="mt-3 rounded-md border border-line bg-canvas px-3 py-2">
           <p className="text-xs text-danger">{err.error}</p>
@@ -433,14 +521,37 @@ function ChannelStep({
         </div>
       )}
       <p className="mt-2 text-[11px] text-muted">
-        In Slack: right-click the channel → <strong className="text-ink">Copy link</strong>; the id
-        is the last part (it starts with <code className="font-mono">C</code>, sometimes{" "}
-        <code className="font-mono">G</code>). Then invite the agent to that channel with{" "}
+        Whichever way you choose a channel, invite the agent to it with{" "}
         <code className="font-mono">/invite</code> - <strong className="text-ink">in public
-        channels too</strong>. Slack only delivers a mention to an app that's in the conversation,
-        so a channel it hasn't joined will look configured here and ignore every mention.
+        channels too</strong>. Slack only delivers a mention to an app that's in the conversation.
       </p>
     </Panel>
+  );
+}
+
+/** The manual escape hatch: an id the picker didn't list (another workspace's, or beyond 200). */
+function ChannelIdInput({ onAdd, disabled }: { onAdd: (id: string) => void; disabled: boolean }) {
+  const [input, setInput] = useState("");
+  const submit = () => {
+    const id = input.trim();
+    if (!id) return;
+    onAdd(id);
+    setInput("");
+  };
+  return (
+    <div className="mt-2 flex gap-2">
+      <input
+        className="field flex-1 font-mono text-[11px]"
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && submit()}
+        placeholder="…or paste a channel id (C0123456789)"
+        disabled={disabled}
+      />
+      <button className="btn btn-ghost" type="button" disabled={disabled || !input.trim()} onClick={submit}>
+        Add
+      </button>
+    </div>
   );
 }
 
@@ -456,11 +567,17 @@ function LivePanel({
   onChange: () => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
   const remove = async (id: string) => {
     setBusy(true);
+    setErr(null);
     try {
-      await putSlackChannels(agentId, setup.channels.filter((c) => c !== id));
+      await putSlackChannels(agentId, setup.channels.filter((c) => c !== id), setup.allChannels);
       onChange();
+    } catch (e) {
+      // Surfaced, not swallowed: the allowlist is the security control, so a removal that
+      // silently failed would leave the user believing they'd revoked access they still grant.
+      setErr(parseApiError(e, "could not remove the channel").error);
     } finally {
       setBusy(false);
     }
@@ -482,8 +599,36 @@ function LivePanel({
 
       <div className="rounded-lg border border-line bg-surface p-4">
         <div className="label mb-2">Answers in</div>
-        <ChannelList channels={setup.channels} onRemove={canWrite && !busy ? remove : undefined} />
-        <ChannelStep setup={setup} agentId={agentId} canWrite={canWrite} onDone={onChange} />
+        {setup.allChannels ? (
+          <p className="text-xs text-ink">
+            Any channel the bot is invited to.{" "}
+            {canWrite && (
+              <button
+                type="button"
+                className="underline text-muted transition-colors hover:text-ink"
+                disabled={busy}
+                onClick={() => void putSlackChannels(agentId, setup.channels, false).then(onChange)}
+              >
+                Restrict to a list
+              </button>
+            )}
+          </p>
+        ) : (
+          <>
+            <ChannelList channels={setup.channels} onRemove={canWrite && !busy ? remove : undefined} />
+            {canWrite && (
+              <ChannelIdInput
+                onAdd={(id) =>
+                  void putSlackChannels(agentId, [...setup.channels, id], false)
+                    .then(onChange)
+                    .catch((e) => setErr(parseApiError(e, "could not add the channel").error))
+                }
+                disabled={busy}
+              />
+            )}
+          </>
+        )}
+        {err && <p className="mt-2 text-xs text-danger">{err}</p>}
       </div>
 
       {setup.grantedScopes?.length ? (
