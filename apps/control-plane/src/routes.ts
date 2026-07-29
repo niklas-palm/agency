@@ -35,7 +35,7 @@ import type {
   SessionSummaryInput,
   TokenUsage,
 } from "@agency/shared";
-import { costFor, tokenTotal } from "@agency/shared";
+import { costFor, normalizeUsage, tokenTotal } from "@agency/shared";
 import { buildOpenApiSpec, buildSkill, isScope, isRole, isModelAllowedInNetworkMode, parseSkillDoc, scopesForRole, TRAJECTORY_EVENT_TYPES } from "@agency/shared";
 import type { Org, Membership, Invite, Me, OrgMembership, Member } from "@agency/shared";
 import { v7 as uuidv7 } from "uuid";
@@ -200,17 +200,12 @@ const ISOLATED_MODEL_400 =
  * so a missing field must render as `0`, not as "undefined turns".
  */
 function runFor(r: SessionSummaryInput): AgentRun {
-  // A summary is self-reported, so a PARTIAL tokens object (say only inputTokens) must
-  // not put NaN on the wire - JSON renders NaN as `null`, violating the spec's required
-  // integers - and costFor/tokenTotal harden their own inputs as a second layer.
-  // Coerced, not just defaulted: `tokenTotal` and `costFor` both harden their own
-  // inputs, but this bundle is also spread onto the response, so normalize once here.
-  const tokens: TokenUsage = {
-    inputTokens: Number(r.tokens?.inputTokens) || 0,
-    outputTokens: Number(r.tokens?.outputTokens) || 0,
-    cacheReadTokens: Number(r.tokens?.cacheReadTokens) || 0,
-    cacheWriteTokens: Number(r.tokens?.cacheWriteTokens) || 0,
-  };
+  // `normalizeUsage` makes the four drivers disjoint (an OpenAI row counts its cache
+  // reads inside inputTokens) and coerces every field: a summary is self-reported, so a
+  // PARTIAL tokens object must not put NaN on the wire - JSON renders NaN as `null`,
+  // violating the spec's required integers. Same helper the metrics aggregation uses, so
+  // a run's totalTokens/costUsd can't disagree with the dashboard's.
+  const tokens: TokenUsage = normalizeUsage(r.model ?? "", r.tokens);
   return {
     runId: r.runId,
     sessionId: r.sessionId,

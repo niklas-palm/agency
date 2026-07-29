@@ -180,13 +180,13 @@ describe("aggregate", () => {
 
   it("totals tokens and prices cost per session's own model", () => {
     const rows = [
-      // haiku: input $1/MTok, output $5/MTok → 1_000_000*1 + 200_000*5 = $2.00
+      // haiku: input $1.10/MTok, output $5.50/MTok → 1_000_000*1.1 + 200_000*5.5 = $2.20
       session({
         endedAt: "2026-07-20T10:00:00Z",
         model: "haiku-4.5",
         tokens: { inputTokens: 1_000_000, outputTokens: 200_000, cacheReadTokens: 0, cacheWriteTokens: 0 },
       }),
-      // opus: input $5/MTok → 1_000_000*5 = $5.00
+      // opus: input $5.50/MTok → 1_000_000*5.5 = $5.50
       session({
         endedAt: "2026-07-20T10:30:00Z",
         model: "opus-4.8",
@@ -196,15 +196,44 @@ describe("aggregate", () => {
     const out = aggregate(rows, from, to, "hour", null);
     expect(out.tokens).toEqual({ inputTokens: 2_000_000, outputTokens: 200_000, cacheReadTokens: 0, cacheWriteTokens: 0 });
     expect(out.totalTokens).toBe(2_200_000);
-    expect(out.costUsd).toBeCloseTo(7.0, 6); // $2.00 (haiku) + $5.00 (opus)
+    expect(out.costUsd).toBeCloseTo(7.7, 6); // $2.20 (haiku) + $5.50 (opus)
     const h10 = out.series.find((b) => b.bucket === "2026-07-20T10")!;
     expect(h10.tokens).toBe(2_200_000);
-    expect(h10.costUsd).toBeCloseTo(7.0, 6);
-    // Per-session cost: mean + percentiles over the two sessions ($2.00, $5.00).
-    expect(out.avgCostUsd).toBeCloseTo(3.5, 6); // (2+5)/2
-    expect(out.p50CostUsd).toBeCloseTo(2.0, 6); // nearest-rank of [2,5]
-    expect(out.p95CostUsd).toBeCloseTo(5.0, 6);
-    expect(out.p99CostUsd).toBeCloseTo(5.0, 6);
+    expect(h10.costUsd).toBeCloseTo(7.7, 6);
+    // Per-session cost: mean + percentiles over the two sessions ($2.20, $5.50).
+    expect(out.avgCostUsd).toBeCloseTo(3.85, 6); // (2.2+5.5)/2
+    expect(out.p50CostUsd).toBeCloseTo(2.2, 6); // nearest-rank of [2.2,5.5]
+    expect(out.p95CostUsd).toBeCloseTo(5.5, 6);
+    expect(out.p99CostUsd).toBeCloseTo(5.5, 6);
+  });
+
+  it("doesn't double-count an OpenAI row's cache reads (they sit inside inputTokens)", () => {
+    // Bedrock reports the four drivers disjoint; OpenAI counts cache hits INSIDE
+    // input_tokens (verified on the wire - see docs/metrics.md). Both rows below claim
+    // the same shape, so summing them the same way charges the OpenAI cache hits twice:
+    // once at the input rate and again at the cache-read rate.
+    const tokens = { inputTokens: 1_000_000, outputTokens: 0, cacheReadTokens: 900_000, cacheWriteTokens: 0 };
+    const openai = aggregate(
+      [session({ endedAt: "2026-07-20T10:00:00Z", model: "gpt-5.6-luna", tokens })],
+      from, to, "hour", null,
+    );
+    const bedrock = aggregate(
+      [session({ endedAt: "2026-07-20T10:00:00Z", model: "haiku-4.5", tokens })],
+      from, to, "hour", null,
+    );
+
+    // OpenAI: 100_000 tokens were actually new input, 900_000 were a cache hit.
+    expect(openai.tokens.inputTokens).toBe(100_000);
+    expect(openai.totalTokens).toBe(1_000_000);
+    // luna: $1/MTok input, $0.10/MTok cached → 0.1*1 + 0.9*0.1 = $0.19
+    expect(openai.costUsd).toBeCloseTo(0.19, 6);
+
+    // Bedrock: nothing subtracted - a real Anthropic row has cacheRead far ABOVE
+    // inputTokens, so the same subtraction would zero out its input.
+    expect(bedrock.tokens.inputTokens).toBe(1_000_000);
+    expect(bedrock.totalTokens).toBe(1_900_000);
+    // haiku: $1.10/MTok input, $0.11/MTok cached → 1*1.1 + 0.9*0.11 = $1.199
+    expect(bedrock.costUsd).toBeCloseTo(1.199, 6);
   });
 
   it("treats legacy rows (no tokens/model) as zero tokens and zero cost", () => {

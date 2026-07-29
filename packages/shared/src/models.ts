@@ -78,15 +78,27 @@ export const MODEL_INFO: Record<ModelKey, ModelInfo> = {
  * runtime records (see SessionSummary) into a dollar cost in the metrics
  * aggregation. Four drivers, because that's how LLM billing works:
  *   input, output, cacheRead (cheap - a cache hit), cacheWrite (a premium).
- * Prompt caching is ON for Anthropic (model.ts cacheConfig: "auto"), so cache
- * fields materially affect real cost - they are priced separately here.
+ * Prompt caching is ON for Anthropic (model.ts cacheConfig: "auto") and implicit
+ * on the OpenAI models, so cache fields materially affect real cost - they are
+ * priced separately here.
  *
- * ANTHROPIC rates are the current Bedrock/first-party sticker prices (Bedrock
- * matches first-party): cacheRead ~= 0.1x input, cacheWrite (5-min) ~= 1.25x
- * input. OPENAI-via-Mantle rates are ESTIMATES pending verification against a
- * real AWS Bedrock Mantle bill (the Mantle-brokered rate can differ from
- * openai.com list prices) - correct these here once a bill is available; the
- * token counts they multiply are exact regardless.
+ * ANTHROPIC: the rates are Bedrock's, NOT Anthropic's first-party list, and the
+ * distinction is worth 10%: Bedrock publishes two tiers, and a `global.` profile is
+ * cheaper than a geo-pinned (`eu.`/`us.`) or in-region one, which carries a 1.1x
+ * uplift. `MODELS` uses `eu.` profiles (a profile prefix must match the calling
+ * region), so these are the GEO-tier prices - if the platform ever switches to
+ * `global.` profiles, divide by 1.1. Within a tier the rate is the same in
+ * eu-north-1 and us-east-1. cacheRead = 0.1x input, cacheWrite = 1.25x input (the
+ * 5-minute TTL, which is what a bare `cachePoint` asks for; the 1h TTL would be 2x,
+ * and nothing here requests it).
+ *
+ * OPENAI-via-Mantle: AWS publishes a Mantle rate for `gpt-oss-*` only, so that one is
+ * exact (and identical in both regions); the gpt-5.6 family is priced from OpenAI's
+ * own standard short-context list, because AWS publishes nothing for it. Two known
+ * gaps in those three, both bounded and neither worth modelling until a bill says
+ * otherwise: AWS notes Bedrock-brokered OpenAI billing "may differ" from OpenAI's
+ * list, and OpenAI's long-context tier (2x) isn't modelled - a very large prompt is
+ * under-priced.
  */
 export interface ModelPrice {
   inputPerMTok: number;
@@ -96,21 +108,36 @@ export interface ModelPrice {
 }
 
 export const MODEL_PRICING: Record<ModelKey, ModelPrice> = {
-  // Anthropic (Bedrock) - verified sticker prices.
-  "opus-4.8": { inputPerMTok: 5, outputPerMTok: 25, cacheReadPerMTok: 0.5, cacheWritePerMTok: 6.25 },
-  "sonnet-5": { inputPerMTok: 3, outputPerMTok: 15, cacheReadPerMTok: 0.3, cacheWritePerMTok: 3.75 },
-  "haiku-4.5": { inputPerMTok: 1, outputPerMTok: 5, cacheReadPerMTok: 0.1, cacheWritePerMTok: 1.25 },
-  // OpenAI via Bedrock Mantle - ESTIMATES, verify against a real bill.
-  "gpt-5.6-luna": { inputPerMTok: 1.25, outputPerMTok: 10, cacheReadPerMTok: 0.125, cacheWritePerMTok: 1.5625 },
-  "gpt-5.6-terra": { inputPerMTok: 1.25, outputPerMTok: 10, cacheReadPerMTok: 0.125, cacheWritePerMTok: 1.5625 },
-  "gpt-5.6-sol": { inputPerMTok: 1.25, outputPerMTok: 10, cacheReadPerMTok: 0.125, cacheWritePerMTok: 1.5625 },
-  "gpt-oss-120b": { inputPerMTok: 0.15, outputPerMTok: 0.6, cacheReadPerMTok: 0.015, cacheWritePerMTok: 0.1875 },
+  // Anthropic on Bedrock, geo-profile tier (= 1.1x the `global.` tier).
+  "opus-4.8": { inputPerMTok: 5.5, outputPerMTok: 27.5, cacheReadPerMTok: 0.55, cacheWritePerMTok: 6.875 },
+  // Sonnet 5 is on promotional launch pricing ($2/$10 global → $2.2/$11 geo) through
+  // 2026-08-31; after that it moves to $3/$15 global → $3.3/$16.5 geo. Deliberately a
+  // single current rate rather than a dated table: cost is priced when the dashboard
+  // loads, so a date switch here would still re-price OLD runs at the new rate. Pricing
+  // history properly needs an effective-dated table keyed on the run's endedAt.
+  "sonnet-5": { inputPerMTok: 2.2, outputPerMTok: 11, cacheReadPerMTok: 0.22, cacheWritePerMTok: 2.75 },
+  "haiku-4.5": { inputPerMTok: 1.1, outputPerMTok: 5.5, cacheReadPerMTok: 0.11, cacheWritePerMTok: 1.375 },
+  // OpenAI via Bedrock Mantle. gpt-5.6-*: OpenAI standard list (cached input 0.1x,
+  // cache write 1.25x). Strands' Responses adapter doesn't surface OpenAI's
+  // `cache_write_tokens`, so cacheWrite is priced but always reports 0 today.
+  "gpt-5.6-luna": { inputPerMTok: 1, outputPerMTok: 6, cacheReadPerMTok: 0.1, cacheWritePerMTok: 1.25 },
+  "gpt-5.6-terra": { inputPerMTok: 2.5, outputPerMTok: 15, cacheReadPerMTok: 0.25, cacheWritePerMTok: 3.125 },
+  "gpt-5.6-sol": { inputPerMTok: 5, outputPerMTok: 30, cacheReadPerMTok: 0.5, cacheWritePerMTok: 6.25 },
+  // gpt-oss-120b: AWS's published Mantle rate. AWS publishes no cached-token discount
+  // for it and it runs on the Chat Completions path, which reports no cache fields at
+  // all - so its cache rates are its input rate, never a fabricated discount.
+  "gpt-oss-120b": { inputPerMTok: 0.15, outputPerMTok: 0.6, cacheReadPerMTok: 0.15, cacheWritePerMTok: 0.15 },
 };
 
 /**
  * Token usage for one session, split by billing driver. Defined in this leaf module
  * (not index.ts) because the helpers below operate on it and this file must import
  * nothing - see the header note about the import cycle. Re-exported from index.ts.
+ *
+ * The four fields are meant to be DISJOINT - each token counted exactly once, so a
+ * total is their sum and a cost is four multiplications. A stored row is not
+ * guaranteed to be, because providers disagree (see `inputIncludesCacheRead`), so
+ * everything read-side goes through `normalizeUsage` first.
  */
 export interface TokenUsage {
   inputTokens: number;
@@ -125,12 +152,66 @@ export function zeroTokens(): TokenUsage {
 }
 
 /**
+ * Whether this model's provider counts cache reads INSIDE `inputTokens`.
+ *
+ * The two providers report prompt-cache hits in opposite conventions, and taking one
+ * for the other silently inflates both totals and cost:
+ *  - Bedrock/Converse (Anthropic) EXCLUDES them: total input = inputTokens +
+ *    cacheRead + cacheWrite (documented on the Converse `TokenUsage` type).
+ *  - OpenAI (Responses + Chat) INCLUDES them: `cached_tokens` counts how many of
+ *    `input_tokens` came from cache, and the cached rate REPLACES the input rate for
+ *    those tokens. Strands maps it onto the same `cacheReadInputTokens` field the
+ *    Bedrock adapter uses, so nothing downstream can tell them apart.
+ * Keyed off the provider in `MODELS` rather than a per-model flag - it's a property of
+ * the endpoint, not the model. An unrecognized model is assumed disjoint (it prices at
+ * 0 anyway, and the alternative subtracts tokens a caller never double-counted).
+ */
+export function inputIncludesCacheRead(model: string): boolean {
+  return Object.hasOwn(MODELS, model) && MODELS[model as ModelKey].provider === "openai";
+}
+
+/**
+ * Coerce a stored, self-reported usage bundle into disjoint drivers - the single
+ * read-side entry point for a session row's tokens.
+ *
+ * Two jobs, both about not lying on the dashboard:
+ *  1. De-overlap: where the provider counts cache reads inside `inputTokens`, subtract
+ *     them, so `tokenTotal` counts each token once and `costFor` charges the cached
+ *     ones at the cache rate INSTEAD of the input rate rather than as well as it. On a
+ *     long agent session most input is a cache hit, so this is a multiple, not a rounding
+ *     error.
+ *  2. Coerce: every numeric on a summary row is written by the runtime and not
+ *     shape-validated at ingest, so a missing or non-numeric field must become 0, never
+ *     NaN - one NaN propagates into every total, percentile and bucket, and JSON renders
+ *     it as `null`.
+ *
+ * Applied read-side (not at write time) for the same reason cost is: it re-states rows
+ * already in the table, so a run recorded before this existed prices correctly on the
+ * next dashboard load. `tokenTotal` and `costFor` therefore assume an already-normalized
+ * bundle - don't hand them a raw row, and don't normalize twice.
+ */
+export function normalizeUsage(model: string, t: Partial<TokenUsage> | undefined): TokenUsage {
+  const n = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+  const cacheReadTokens = n(t?.cacheReadTokens);
+  const inputTokens = n(t?.inputTokens);
+  return {
+    // max(0): the subtraction rests on a self-reported pair, so a bad row must not
+    // contribute a NEGATIVE input count to the window.
+    inputTokens: inputIncludesCacheRead(model) ? Math.max(0, inputTokens - cacheReadTokens) : inputTokens,
+    outputTokens: n(t?.outputTokens),
+    cacheReadTokens,
+    cacheWriteTokens: n(t?.cacheWriteTokens),
+  };
+}
+
+/**
  * Sum the four billing drivers. Shared so every "total tokens" in the product means
  * the same thing - a fifth driver added to TokenUsage must not leave the run list and
  * the dashboard silently disagreeing.
  *
- * Coerces each field: a session summary is self-reported by the runtime, so a partial
- * or non-numeric bundle must total 0, never NaN (one NaN poisons a whole window's sum).
+ * Expects a bundle from `normalizeUsage` (disjoint drivers). Coerces each field anyway:
+ * a session summary is self-reported by the runtime, so a partial or non-numeric bundle
+ * must total 0, never NaN (one NaN poisons a whole window's sum).
  */
 export function tokenTotal(t: Partial<TokenUsage> | undefined): number {
   return (
@@ -143,6 +224,9 @@ export function tokenTotal(t: Partial<TokenUsage> | undefined): number {
 
 /**
  * Dollar cost of a token bundle for a model. Unknown model → 0 (tokens still tracked).
+ *
+ * Expects a bundle from `normalizeUsage`: the drivers must be disjoint, or the cached
+ * tokens get charged at the input rate as well as the cache rate.
  *
  * Coerces each field, like `tokenTotal`: the bundle comes from a self-reported session
  * summary, so a partial or non-numeric one must price as 0 rather than NaN. NaN here

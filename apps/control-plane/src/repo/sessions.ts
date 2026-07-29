@@ -20,7 +20,7 @@ import type {
   SessionSummaryInput,
   TokenUsage,
 } from "@agency/shared";
-import { costFor, tokenTotal, zeroTokens } from "@agency/shared";
+import { costFor, normalizeUsage, tokenTotal, zeroTokens } from "@agency/shared";
 import { ddb } from "../ddb.js";
 import { SESSIONS_TABLE } from "../config.js";
 
@@ -203,16 +203,12 @@ export function aggregate(
   for (const s of inWindow) {
     // Legacy rows written before invocations existed: treat as 1 (the opening trigger).
     const inv = num(s.invocations, 1);
-    // Legacy rows written before token tracking: treat as all-zero.
-    // Coerced field-by-field, not just merged over zeros: a self-reported bundle can
-    // carry a non-numeric value, and `+=` on a string CONCATENATES - one bad row turned
-    // the window's token totals into "0abc".
-    const t: TokenUsage = {
-      inputTokens: num(s.tokens?.inputTokens),
-      outputTokens: num(s.tokens?.outputTokens),
-      cacheReadTokens: num(s.tokens?.cacheReadTokens),
-      cacheWriteTokens: num(s.tokens?.cacheWriteTokens),
-    };
+    // Legacy rows written before token tracking: treat as all-zero. `normalizeUsage`
+    // coerces field-by-field (a self-reported bundle can carry a non-numeric value, and
+    // `+=` on a string CONCATENATES - one bad row turned the window's token totals into
+    // "0abc") and makes the drivers disjoint, since an OpenAI row counts its cache reads
+    // inside inputTokens and would otherwise be summed - and charged - twice.
+    const t: TokenUsage = normalizeUsage(modelOf(s), s.tokens);
     const sessionTokens = tokenTotal(t);
     // Cost is priced per session at its own model's rate (read-side, so a price
     // correction re-prices history on the next dashboard load).
