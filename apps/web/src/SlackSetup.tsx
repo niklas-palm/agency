@@ -377,6 +377,24 @@ function InstallStep({
       <a className="btn btn-ghost mb-4" href={appUrl} target="_blank" rel="noreferrer">
         Open the app's settings <ExternalLink className="h-3.5 w-3.5" />
       </a>
+      {/* Naming the URL is the only reliable way to tell two same-named apps apart, and pasting the
+          wrong one is the single most common way this setup fails. */}
+      <div className="mb-4 rounded-md border border-line bg-canvas px-3 py-2">
+        <p className="text-[11px] text-muted">
+          If your workspace has more than one app with a similar name, the right one is whichever
+          has <strong className="text-ink">this exact Request URL</strong> under Event
+          Subscriptions:
+        </p>
+        <code className="mt-1.5 block overflow-x-auto font-mono text-[10px] text-ink">
+          {setup.requestUrl}
+        </code>
+        {!setup.urlVerified && (
+          <p className="mt-1.5 text-[11px] text-danger">
+            Slack hasn't called that URL yet, so no app is pointed at this agent. Create the app
+            from the manifest above first.
+          </p>
+        )}
+      </div>
       <div className="space-y-3">
         <Field
           label="Bot User OAuth Token"

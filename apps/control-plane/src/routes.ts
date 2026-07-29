@@ -2010,15 +2010,22 @@ export function buildRoutes(deps: Deps): Hono<Env> {
     // which happens whenever a token predates a manifest change or comes from an older app of the
     // same name - and without `app_mentions:read` Slack never delivers a mention at all, so the
     // failure is total and invisible: no webhook call, no log line, nothing to debug.
+    // Catch a token from the WRONG APP. Slack has no "which app is this token for" field on
+    // auth.test's body, but `urlVerified` tells us OUR manifest's app completed the handshake with
+    // THIS agent - so a token whose scopes can't have come from our manifest is a token from a
+    // different app of the same name. This has now happened three times: several `know-it-*` apps
+    // in one workspace, and the tokens are indistinguishable by eye.
     const missing = missingRequiredScopes(verified.grantedScopes);
     if (missing.length) {
       return c.json(
         {
           error: `this token is missing ${missing.join(", ")}`,
           hint:
-            "Slack grants the scopes the app had when it was INSTALLED, so an older app or an " +
-            "un-reinstalled one carries the old set. Reinstall the app from the current manifest " +
-            "(OAuth & Permissions → Reinstall), then paste the new token. Granted: " +
+            "Two causes, both common. (1) The token is from a DIFFERENT app - if you have several " +
+            "apps with similar names, only the one whose Request URL ends in " +
+            `${record.id} is this agent's. (2) The app was installed before its permissions ` +
+            "changed; Slack grants what the app had at install time, so reinstall it (OAuth & " +
+            "Permissions → Reinstall to Workspace) and paste the new token. Granted: " +
             (verified.grantedScopes.join(", ") || "none"),
         },
         400,
