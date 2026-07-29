@@ -28,6 +28,7 @@ export {
   SLACK_BOT_SCOPES,
   slackAppName,
   slackBotName,
+  slackNameProblem,
   slackRequestUrl,
   slackManifest,
 } from "./slack-manifest.js";

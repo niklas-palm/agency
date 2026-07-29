@@ -3,6 +3,7 @@ import {
   SLACK_BOT_SCOPES,
   slackAppName,
   slackBotName,
+  slackNameProblem,
   slackManifest,
   slackRequestUrl,
 } from "./slack-manifest.js";
@@ -77,6 +78,37 @@ describe("slackBotName", () => {
     for (const name of ["Slack-bot", "My Agent!! (v2)", "ÄÖÜ agent", "a".repeat(120), "!!!"]) {
       expect(slackBotName(name), name).toMatch(/^[a-z0-9._-]+$/);
       expect(slackBotName(name).length).toBeLessThanOrEqual(80);
+    }
+  });
+});
+
+describe("slackNameProblem", () => {
+  /**
+   * Refusing beats rewriting here. Silently turning `slack-bot` into `bot` would recreate the
+   * original failure - an app named one thing, a handle named another, and a mention matching
+   * neither. The user renames the agent once and everything agrees.
+   */
+  it("refuses the names Slack reserves outright", () => {
+    expect(slackNameProblem("slackbot")).toMatch(/reserves/i);
+    expect(slackNameProblem("Slackbot")).toMatch(/reserves/i);
+    expect(slackNameProblem("slack")).toMatch(/reserves/i);
+  });
+
+  it("refuses anything starting with slack, however punctuated", () => {
+    for (const n of ["slack-bot", "Slack-bot", "slack_bot", "slack.bot", "slackdeploy", "SLACK BOT"]) {
+      expect(slackNameProblem(n), n).not.toBeNull();
+    }
+  });
+
+  it("says what to do instead, not just what's wrong", () => {
+    // The message has to name the fix: the agent is renamed elsewhere, so "invalid" alone leaves
+    // the user stuck on a step they can't act on.
+    expect(slackNameProblem("slack-bot")).toMatch(/name the agent after what it does/i);
+  });
+
+  it("allows a normal name, including one that merely contains slack", () => {
+    for (const n of ["deploy-helper", "oncall", "Deploy Bot", "my-slack-helper", "unslack"]) {
+      expect(slackNameProblem(n), n).toBeNull();
     }
   });
 });

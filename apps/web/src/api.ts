@@ -163,6 +163,8 @@ export interface SlackSetup {
   urlVerified: boolean;
   channels: string[];
   allChannels: boolean;
+  /** Set when the agent's name would be refused by Slack, or is confusing as a handle. */
+  nameProblem?: string | null;
 }
 
 export async function getSlackSetup(id: string): Promise<SlackSetup> {

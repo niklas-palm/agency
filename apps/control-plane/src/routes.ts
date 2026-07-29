@@ -71,7 +71,7 @@ import {
   slackChannelList,
   withSlackVerification,
 } from "./slack-setup.js";
-import { slackManifest, slackRequestUrl, SLACK_BOT_SCOPES, slackOf } from "@agency/shared";
+import { slackManifest, slackNameProblem, slackRequestUrl, SLACK_BOT_SCOPES, slackOf } from "@agency/shared";
 import { generateApiKey, verifyApiKey } from "./apikey.js";
 import { generateAccessToken } from "./token.js";
 import {
@@ -1928,6 +1928,9 @@ export function buildRoutes(deps: Deps): Hono<Env> {
 
     return c.json({
       state: slackSetupState(record),
+      // A name Slack will refuse or that reads as Slack's own - surfaced BEFORE the user pastes a
+      // manifest that fails, since the fix is renaming the agent, not retrying.
+      nameProblem: slackNameProblem(record.config.name),
       manifest: slackManifest({
         agentName: record.config.name,
         description: record.description,

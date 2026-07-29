@@ -228,6 +228,21 @@ function CreateAppStep({
   onRecheck: () => void;
 }) {
   if (done) return <Panel title="" receipt="Slack app created, and Slack has reached this agent's webhook." />;
+  if (setup.nameProblem) {
+    return (
+      <Panel title="1. Create the Slack app">
+        <div className="rounded-md border border-line bg-canvas px-3 py-2.5">
+          <p className="text-xs text-danger">Rename the agent first.</p>
+          <p className="mt-1 text-[11px] text-muted">{setup.nameProblem}</p>
+          <p className="mt-1.5 text-[11px] text-muted">
+            The agent's name becomes the bot's handle, so it has to be one Slack accepts. Change it
+            on the <strong className="text-ink">Configure</strong> tab and come back - this step
+            will unblock itself.
+          </p>
+        </div>
+      </Panel>
+    );
+  }
   return (
     <Panel title="1. Create the Slack app">
       <p className="mb-3 text-xs text-muted">

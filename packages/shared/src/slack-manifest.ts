@@ -81,6 +81,32 @@ export function slackBotName(agentName: string): string {
   return handle || "agency-agent";
 }
 
+/**
+ * Why an agent name can't start with "slack".
+ *
+ * Slack reserves `slackbot` outright, and names in that space are both liable to be refused and
+ * confusing to use: `@slack-deploy` reads as something Slack ships rather than something you run.
+ * The handle IS how people address the agent, so a name that fights the platform is a bad name.
+ *
+ * We REFUSE rather than silently rewrite. A silent fix is what caused the original problem - the
+ * app ended up with one name and the bot handle another, and the mention matched neither. Telling
+ * the user costs one sentence; guessing costs an afternoon.
+ */
+export function slackNameProblem(agentName: string): string | null {
+  const handle = slackBotName(agentName);
+  if (handle === "slackbot" || handle === "slack") {
+    return "Slack reserves this name. Pick something else - the name is what people @-mention.";
+  }
+  if (/^slack[-._]?/.test(handle)) {
+    return (
+      "A name starting with \"slack\" is reserved or confusing in Slack (it reads as something " +
+      "Slack ships). Name the agent after what it DOES - \"deploy-helper\", \"oncall\" - since the " +
+      "name is what people @-mention."
+    );
+  }
+  return null;
+}
+
 /** The events URL for one agent. The agentId is in the PATH - see `SlackTrigger` for why. */
 export function slackRequestUrl(apiOrigin: string, agentId: string): string {
   return `${apiOrigin.replace(/\/+$/, "")}/webhooks/slack/${agentId}`;
