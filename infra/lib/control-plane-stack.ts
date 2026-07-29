@@ -458,7 +458,7 @@ export class ControlPlaneStack extends Stack {
     runtimeIsolated.node.addDependency(runtimePolicyDep);
 
     // Expire the microVM logs (the agent's own stdout/stderr - the log you read when
-    // an agent misbehaves) after LOG_RETENTION. AgentCore creates one group per
+    // an agent misbehaves) like every other group. AgentCore creates one group per
     // runtime and CfnRuntime has no retention property, so we name the group it will
     // create: `<runtimeId>-DEFAULT`, where runtimeId is `<name>-<suffix>`.
     for (const [id, rt] of [

@@ -86,7 +86,9 @@ tested without AWS: config validation (`config-validation.ts`), the auth scope d
 Strands stream → trajectory translation
 (`parseStreamEvent`), the model-provider factory, the sandbox path guard (`sandboxed`,
 incl. the sibling-prefix escape regression), the base tools against a real temp dir, and
-the mid-turn injection mailbox/hook (incl. the `MAILBOX_CAP` flood cases).
+the mid-turn injection mailbox/hook (incl. the `MAILBOX_CAP` flood cases). A few tests guard
+*wiring* rather than logic where the wiring is the risk - the ingest routes' grants, and the
+request-log middleware's placement (`log.test.ts`).
 
 ## End-to-end test
 

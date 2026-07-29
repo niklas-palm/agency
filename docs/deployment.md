@@ -453,15 +453,25 @@ it's created. The invoker keeps a short retry only for transient throttling/conf
 ## Logs
 
 Everything writes to CloudWatch, and **every group we own expires after 30 days**
-(`infra/lib/logging.ts` - `RetentionDays.ONE_MONTH`). None of these groups is declared by
+(`infra/lib/logging.ts` - one constant to change if your policy wants a different horizon).
+None of these groups is declared by
 CDK: Lambda creates `/aws/lambda/<function>` on first invoke and AgentCore creates
 `/aws/bedrock-agentcore/runtimes/<runtimeId>-DEFAULT`, so retention is applied to the
 existing group **by name** with a `logs.LogRetention` custom resource (PutRetentionPolicy).
+It applies from the **first** deploy - the custom resource creates the group with the policy
+already on it if the service hasn't made it yet - so a fresh deployment never accumulates an
+unbounded group.
 A new Lambda therefore needs an `expireFunctionLogs(fn)` call, and
 `infra/lib/log-retention.test.ts` fails if one is forgotten. The groups CDK creates for its
 own deploy-time custom resources (bucket deployment, cross-region export reader,
 auto-delete-objects, and LogRetention's own singleton) are left alone - they log a few KB
 per deploy.
+
+The cost of that mechanism, stated plainly: CDK's `LogRetention` is a deploy-time Lambda
+holding `logs:PutRetentionPolicy` + `logs:DeleteRetentionPolicy` on `*` (CDK hardcodes the
+wildcard - it isn't ours to scope). It can change a retention policy and read nothing, and it
+runs only during a deploy. The alternative is setting retention by hand outside CDK, which
+drifts the moment someone forgets.
 
 Where to look:
 

@@ -324,7 +324,7 @@ and unhandled errors; the runtime logs telemetry failures and thrown turns. A su
 nothing - clients poll in a loop, and the trajectory is already the durable record of a run.
 
 `DEBUG=1` adds the verbose trace (every request, invoke, poll, step, telemetry POST) via a
-~12-line `log.ts` in EACH app - duplicated deliberately: the two deploy separately and share
+small `log.ts` in EACH app - duplicated deliberately: the two deploy separately and share
 nothing at runtime but the wire types. docker-compose sets it; no CDK stack does, so prod is
 quiet unless someone flips it on a function for a while. Debug lines carry ids, names and
 sizes only - never prompt text, tool arguments or `config.env` values, because a microVM's

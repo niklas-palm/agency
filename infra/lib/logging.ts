@@ -20,15 +20,15 @@ import * as logs from "aws-cdk-lib/aws-logs";
 import type { IFunction } from "aws-cdk-lib/aws-lambda";
 import type { Construct } from "constructs";
 
-/** How long CloudWatch keeps our logs. */
-export const LOG_RETENTION = logs.RetentionDays.ONE_MONTH;
+/** How long CloudWatch keeps our logs. Change this one line to change the horizon. */
+const RETENTION = logs.RetentionDays.ONE_MONTH;
 
 /**
  * Expire a service-created log group named at deploy time. The group is created if
  * the service hasn't made it yet, and kept (not deleted) if this stack goes away.
  */
 export function expireLogGroup(scope: Construct, id: string, logGroupName: string): void {
-  new logs.LogRetention(scope, id, { logGroupName, retention: LOG_RETENTION });
+  new logs.LogRetention(scope, id, { logGroupName, retention: RETENTION });
 }
 
 /** Expire the log group Lambda creates for `fn` on its first invoke. */
