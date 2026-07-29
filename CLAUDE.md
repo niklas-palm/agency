@@ -329,7 +329,8 @@ secret. **One thread = one session** (`slack-<channel>-<threadTs>`), so a follow
 **injected into the running turn** - the load-bearing feature made visible. The agent never
 holds the bot token: `slack_reply`/`slack_set_status` are wired only when the payload carries
 `fromSlack`, and the control-plane derives the reply target from the session token, so there's
-no channel argument to poison. The channel allowlist is a security control (anyone who can
+no channel argument to poison. The webhook adds 👀 on receipt (before the run), and the four status
+reactions (🟡 working → 🟢 done / 🔴 failed / ❓ needs_input) are mutually exclusive. The channel allowlist is a security control (anyone who can
 `/invite` the bot can direct the agent); empty means answer nowhere, and the opt-in
 `allChannels` deliberately delegates the gate to whoever can `/invite`. See docs/triggers.md.
 

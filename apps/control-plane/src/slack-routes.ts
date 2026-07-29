@@ -23,6 +23,7 @@ import type { Env, Hono } from "hono";
 import { slackOf, type AgentConfig, type SlackTrigger } from "@agency/shared";
 import { getAgent, updateAgent, type AgentRecord } from "./repo/agents.js";
 import { isUrlVerification, verifySlackSignature } from "./slack-verify.js";
+import { acknowledgeMention } from "./slack-proxy.js";
 
 /** Slack retries a delivery it considers failed; the header tells us it's a retry. */
 const RETRY_HEADER = "x-slack-retry-num";
@@ -244,6 +245,15 @@ export function mountSlackRoutes<E extends Env>(app: Hono<E>, deps: SlackRouteDe
     }
 
     const sessionId = slackSessionId(decision.channel, decision.threadTs);
+
+    // 👀 FIRST, before the run. This is the whole difference between "it heard me" and "it's
+    // broken" in the seconds before the agent produces anything, and it costs one Slack call.
+    // Awaited (not fire-and-forget) because a Lambda freezes on response - the same trap that
+    // silently dropped the dispatch - but its failure never blocks the run.
+    const botToken = record.slackSecrets?.botToken;
+    if (botToken) {
+      await acknowledgeMention(botToken, decision.channel, decision.messageTs).catch(() => {});
+    }
     // AWAIT the dispatch. This ran as fire-and-forget and silently did nothing in prod: a Lambda
     // freezes the moment it returns its response, so the pending promise was killed before the
     // invoke completed - the webhook 200'd in 2ms and no run ever started. Awaiting is safe

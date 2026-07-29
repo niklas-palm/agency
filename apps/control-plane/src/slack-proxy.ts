@@ -24,13 +24,27 @@ const SLACK_TIMEOUT_MS = 10_000;
 /** Messages returned by `read_thread`. Enough for context; not enough to flood the model. */
 const THREAD_LIMIT = 50;
 
-/** Reactions the agent may set, and what each means. A closed set keeps the protocol legible. */
+/**
+ * The status reactions, and what each means.
+ *
+ * MUTUALLY EXCLUSIVE: setting one removes the others, so the message carries exactly one status
+ * rather than accumulating a history of them. Matched to the sibling slack-dev agent's protocol so
+ * the two read identically in a workspace that runs both.
+ *
+ * 👀 is separate and is added by the WEBHOOK on receipt, before the agent starts - see
+ * `acknowledgeMention`. It answers "did it hear me?", which is the question a user has in the two
+ * seconds before anything else happens, and it's the difference between a bot that feels alive and
+ * one that looks broken.
+ */
 export const SLACK_STATUS_EMOJI = {
-  working: "hourglass_flowing_sand",
-  done: "white_check_mark",
-  failed: "x",
+  working: "large_yellow_circle",
+  done: "large_green_circle",
+  failed: "red_circle",
   needs_input: "question",
 } as const;
+
+/** 👀, added the moment a mention arrives. Not a status - it never gets cleared. */
+export const SLACK_ACK_EMOJI = "eyes";
 
 export type SlackStatus = keyof typeof SLACK_STATUS_EMOJI;
 
@@ -136,11 +150,16 @@ export async function callSlack(
       hint: `Use one of: ${Object.keys(SLACK_STATUS_EMOJI).join(", ")}.`,
     };
   }
-  return post("reactions.add", botToken, {
-    channel: target.channel,
-    timestamp: replyToTs || target.threadTs,
-    name,
-  });
+  const timestamp = replyToTs || target.threadTs;
+  // Clear the other statuses first, so the message shows one state rather than a pile of them.
+  // Concurrently, and failures ignored: a stale reaction that won't budge is cosmetic, and must
+  // not stop the new status landing.
+  await Promise.all(
+    Object.values(SLACK_STATUS_EMOJI)
+      .filter((e) => e !== name)
+      .map((e) => post("reactions.remove", botToken, { channel: target.channel, timestamp, name: e })),
+  );
+  return post("reactions.add", botToken, { channel: target.channel, timestamp, name });
 }
 
 /**
@@ -222,4 +241,25 @@ async function readThread(
   } catch {
     return { error: "could not reach Slack", hint: "Transient - try once more." };
   }
+}
+
+/**
+ * Add 👀 to the message that mentioned us, immediately on receipt.
+ *
+ * Deliberately best-effort and never awaited by the caller's critical path: it exists so the user
+ * sees acknowledgement within a second, and a failure to react must not stop the run. Logged
+ * though - "no eyes" is the first symptom worth debugging, because it means the token or the
+ * channel membership is wrong.
+ */
+export async function acknowledgeMention(
+  botToken: string,
+  channel: string,
+  messageTs: string,
+): Promise<void> {
+  const res = await post("reactions.add", botToken, {
+    channel,
+    timestamp: messageTs,
+    name: SLACK_ACK_EMOJI,
+  });
+  if ("error" in res) console.warn("slack ack reaction failed", channel, res.error);
 }

@@ -55,9 +55,12 @@ export function buildSlackTools(fromSlack: boolean) {
   const setStatus = tool({
     name: "slack_set_status",
     description:
-      "Signal progress by reacting to the message that invoked you. 'working' when you start " +
-      "something slow, 'done' when you've answered, 'failed' if you couldn't, 'needs_input' " +
-      "if you're blocked on a question. Cheaper and less noisy than posting progress messages.",
+      "Set the thread's status reaction on the message that invoked you. The four are MUTUALLY " +
+      "EXCLUSIVE - setting one clears the others, so the message always shows exactly one state. " +
+      "🟡 'working' as soon as you know the answer will take more than a moment; then 🟢 'done' " +
+      "when you have replied, 🔴 'failed' if you could not, or ❓ 'needs_input' if you are blocked " +
+      "on a question. A status is not a substitute for slack_reply - it tells people whether to " +
+      "wait, and your answer still has to be posted.",
     inputSchema: z.object({
       status: z.enum(STATUSES).describe("Which status to show."),
     }),
@@ -88,8 +91,11 @@ export const SLACK_PROMPT = [
   "",
   "- Your reply reaches them ONLY if you call `slack_reply`. Text you return is not posted.",
   "- Reply in the thread you were called from - that is where `slack_reply` posts.",
-  "- Use `slack_set_status` to show progress: 'working' when starting something slow, then",
-  "  'done' or 'failed' at the end. Prefer a status reaction over chatty progress messages.",
+  "- The thread already shows 👀 - the platform adds it the moment your mention arrives, so you",
+  "  never need to acknowledge receipt yourself.",
+  "- Set 🟡 `working` as soon as you can see the task will take more than a moment, and finish",
+  "  with 🟢 `done` (after replying), 🔴 `failed`, or ❓ `needs_input`. They are mutually exclusive.",
+  "  Make the terminal status your LAST tool call, so it can't claim done before you have answered.",
   "- Slack formatting is mrkdwn, not Markdown: *bold*, _italic_, `code`, ```blocks```.",
   "  Links are <https://example.com|label>.",
   "- You are given ONLY the text of the mention. If it refers to anything you can't see -",

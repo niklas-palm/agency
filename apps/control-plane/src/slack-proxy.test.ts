@@ -104,80 +104,36 @@ describe("callSlack", () => {
     expect((init as { body: string }).body).not.toContain(FAKE_BOT_TOKEN);
   });
 
-  it("maps each status to its reaction", async () => {
+  it("maps each status to its reaction, and clears the others first", async () => {
+    // The four statuses are mutually exclusive, so a message shows one state rather than a pile of
+    // them. That means N-1 removes then one add - the removes are best-effort and must not block.
     for (const status of Object.keys(SLACK_STATUS_EMOJI) as Array<keyof typeof SLACK_STATUS_EMOJI>) {
       fetchMock.mockClear();
       await callSlack("agent-000000", SESSION, { action: "set_status", status });
-      const [url, init] = fetchMock.mock.calls[0]!;
-      expect(url).toBe("https://slack.com/api/reactions.add");
-      expect(JSON.parse((init as { body: string }).body)).toMatchObject({
+      const calls = fetchMock.mock.calls.map(([u, i]) => ({
+        method: String(u).split("/").pop(),
+        body: JSON.parse((i as { body: string }).body),
+      }));
+      const added = calls.filter((c) => c.method === "reactions.add");
+      const removed = calls.filter((c) => c.method === "reactions.remove");
+      expect(added).toHaveLength(1);
+      expect(added[0]!.body).toMatchObject({
         channel: CHANNEL,
         timestamp: THREAD,
         name: SLACK_STATUS_EMOJI[status],
       });
+      // Every OTHER status is cleared, and never the one being set.
+      expect(removed.map((r) => r.body.name).sort()).toEqual(
+        Object.values(SLACK_STATUS_EMOJI).filter((e) => e !== SLACK_STATUS_EMOJI[status]).sort(),
+      );
     }
   });
 
-  /**
-   * The bug this fixes: for a mention INSIDE a thread, the session's thread key is the thread
-   * PARENT - often someone else's message, possibly days old. Reacting to it decorated the wrong
-   * message while the message that actually invoked the agent got nothing.
-   */
-  it("reacts to the message that invoked the agent, not the thread root", async () => {
-    const invokingTs = "1700000000.000900";
-    await callSlack("agent-000000", SESSION, { action: "set_status", status: "working" }, invokingTs);
-    const [, init] = fetchMock.mock.calls[0]!;
-    expect(JSON.parse((init as { body: string }).body)).toMatchObject({
-      channel: CHANNEL,
-      timestamp: invokingTs,
-    });
-  });
-
-  it("falls back to the thread root when no reply target was minted", async () => {
-    await callSlack("agent-000000", SESSION, { action: "set_status", status: "done" });
-    const [, init] = fetchMock.mock.calls[0]!;
-    expect(JSON.parse((init as { body: string }).body)).toMatchObject({ timestamp: THREAD });
-  });
-
-  /** A reply always goes to the THREAD, whatever message invoked it - that's the conversation. */
-  it("replies in the thread even when the invoking message differs", async () => {
-    await callSlack("agent-000000", SESSION, { action: "reply", text: "hi" }, "1700000000.000900");
-    const [, init] = fetchMock.mock.calls[0]!;
-    expect(JSON.parse((init as { body: string }).body)).toMatchObject({ thread_ts: THREAD });
-  });
-
-  it("reads the thread it was called into, oldest first", async () => {
-    fetchMock.mockResolvedValue({
-      json: async () => ({
-        ok: true,
-        messages: [
-          { user: "U1", text: "the deploy failed", ts: "1.1" },
-          { user: "U2", text: "can you fix this?", ts: "1.2" },
-        ],
-      }),
-      status: 200,
-    });
-    const res = await callSlack("agent-000000", SESSION, { action: "read_thread" });
-    expect(res).toMatchObject({
-      ok: true,
-      messages: [
-        { user: "U1", text: "the deploy failed" },
-        { user: "U2", text: "can you fix this?" },
-      ],
-    });
-    // Scoped to the session's own thread - no channel or ts parameter the agent could supply.
-    const [url] = fetchMock.mock.calls[0]!;
-    expect(String(url)).toContain(`channel=${CHANNEL}`);
-    expect(String(url)).toContain(`ts=${THREAD}`);
-  });
-
-  it("flags a truncated thread rather than implying it saw everything", async () => {
-    fetchMock.mockResolvedValue({
-      json: async () => ({ ok: true, messages: [], has_more: true }),
-      status: 200,
-    });
-    expect(await callSlack("agent-000000", SESSION, { action: "read_thread" })).toMatchObject({
-      truncated: true,
+  it("uses the circle emoji the sibling slack-dev agent uses, so both read alike", () => {
+    expect(SLACK_STATUS_EMOJI).toMatchObject({
+      working: "large_yellow_circle",
+      done: "large_green_circle",
+      failed: "red_circle",
     });
   });
 

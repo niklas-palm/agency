@@ -164,7 +164,24 @@ useful rather than literal: an invoke carries only the mention's own text, so wi
 is guessing at what "this" refers to. The prompt tells the model to call it first whenever the
 mention references something it can't see.
 
-Status reactions map the run's lifecycle: ⏳ working → ✅ done / ❌ failed / ❓ needs input. They
+### The reaction protocol
+
+**👀 lands the moment a mention arrives**, added by the webhook itself before the agent starts.
+That answers "did it hear me?" in the second before anything else can happen - the difference
+between a bot that feels alive and one that looks broken. It's awaited (a Lambda freezes on
+response, the trap that once silently dropped the dispatch) but never blocks the run: a missing
+scope or an unjoined channel must not cost the user their answer.
+
+The four **statuses are mutually exclusive** - setting one clears the others, so a message shows
+one state rather than an accumulated history: 🟡 `working` → 🟢 `done` / 🔴 `failed` / ❓
+`needs_input`. The emoji match the sibling slack-dev agent's, so both read identically in a
+workspace running the two. The removes go out concurrently and their failures are ignored, since a
+stale reaction is cosmetic and must not stop the new status landing.
+
+The prompt tells the model to set `working` once it can see the task is slow, and to make the
+terminal status its LAST tool call - otherwise it can claim `done` before the reply is posted.
+
+Status reactions map the run's lifecycle: 🟡 working → 🟢 done / 🔴 failed / ❓ needs input. They
 target the message that **invoked** the agent, which is not the same as the session key: for a
 mention inside a thread the session key is the thread PARENT (often someone else's message, days
 old), so reacting to it would decorate the wrong message. The invoking ts therefore rides the

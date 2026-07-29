@@ -9,6 +9,7 @@ import { Hono } from "hono";
 import type { AgentConfig } from "@agency/shared";
 
 const SECRET = "test_signing_secret_000000";
+const FAKE_BOT_TOKEN = "bot-token-for-tests-000000";
 const AGENT_ID = "agent-000000";
 const CHANNEL = "C0000000001";
 const BOT_USER = "U0000000BOT";
@@ -48,8 +49,12 @@ function record(over: { channels?: string[]; signingSecret?: string | undefined 
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     metrics: { invocations: 0, lastInvokedAt: null },
+    // A connected agent has BOTH: the signing secret verifies inbound, the bot token authorizes
+    // our outbound calls (the 👀 ack needs it).
     slackSecrets:
-      "signingSecret" in over ? { signingSecret: over.signingSecret } : { signingSecret: SECRET },
+      "signingSecret" in over
+        ? { signingSecret: over.signingSecret, botToken: FAKE_BOT_TOKEN }
+        : { signingSecret: SECRET, botToken: FAKE_BOT_TOKEN },
   };
 }
 
@@ -90,8 +95,12 @@ const mention = (over: Record<string, unknown> = {}) => ({
   },
 });
 
+const fetchMock = vi.fn(async (..._args: unknown[]) => ({ json: async () => ({ ok: true }), status: 200 }));
+
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubGlobal("fetch", fetchMock);
+  fetchMock.mockImplementation(async () => ({ json: async () => ({ ok: true }), status: 200 }));
   getAgent.mockResolvedValue(record());
 });
 
@@ -299,6 +308,32 @@ describe("POST /webhooks/slack/:agentId", () => {
    * The app id only ever reaches us on the payload, so the webhook is the one place that can learn
    * it - but only AFTER verification. An unverified body must not be able to write to the record.
    */
+  /**
+   * 👀 must land BEFORE the run, not after it. It answers "did it hear me?" in the seconds before
+   * anything else happens, so posting it after the agent finishes would defeat the purpose.
+   */
+  it("reacts with eyes before dispatching", async () => {
+    const order: string[] = [];
+    fetchMock.mockImplementation(async (url?: unknown) => {
+      if (String(url).includes("reactions.add")) order.push("eyes");
+      return { json: async () => ({ ok: true }), status: 200 };
+    });
+    const dispatch = vi.fn(async () => {
+      order.push("dispatch");
+    });
+    const { app } = buildApp(dispatch);
+    await app.fetch(signedRequest(mention()));
+    expect(order).toEqual(["eyes", "dispatch"]);
+  });
+
+  it("still dispatches when the eyes reaction fails", async () => {
+    // A missing scope or an un-joined channel must not cost the user their answer.
+    fetchMock.mockResolvedValue({ json: async () => ({ ok: false, error: "missing_scope" }), status: 200 });
+    const { app, dispatch } = buildApp();
+    await app.fetch(signedRequest(mention()));
+    expect(dispatch).toHaveBeenCalledTimes(1);
+  });
+
   it("records the app id from a verified callback", async () => {
     // The fixture's default already HAS an appId (the steady state), so drop it to reproduce the
     // pre-connection state where the webhook is the only source of it.
