@@ -21,6 +21,8 @@ authority; there is no back-compat (the affected tables were wiped).
 | **Personal Access Token (PAT)** | `agpat_…` (bearer) | a user's coding assistant / script | the management API, limited to (token scopes ∩ role scopes) in the token's bound org | `principal` with that intersection, `kind: "token"` |
 | **Agent API key** | `ag_…` (bearer) | whoever triggers one agent | invoke + poll **that one agent** | (separate path - see below) |
 
+The agent key is **stored in plaintext** and returned on reads to a caller who can WRITE the agent, so the console prefills it - a deliberate DX trade, bounded by that gate and stated in [SECURITY.md](../SECURITY.md). A viewer of a shared agent is refused it, exactly like `config.env` values. `apiKeyHash` is what invoke verifies against, so the plaintext is never on the auth path.
+
 The JWT and PAT authenticate the **management** API (`/agents`, `/skills`,
 `/integrations`, `/orgs`, `/tokens`). The agent API key authenticates only the
 **run** API (`/agents/:id/invoke`, `/agents/:id/sessions/:sessionId`) and is checked

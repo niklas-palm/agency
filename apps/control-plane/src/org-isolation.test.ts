@@ -58,6 +58,7 @@ const SHARED = {
   version: 2,
   invokeUrl: "http://x/agents/agent-shared/invoke",
   apiKeyHash: "hash",
+  apiKey: "ag_plaintext_for_tests_000000",
   createdAt: "2026-01-01T00:00:00Z",
   updatedAt: "2026-01-01T00:00:00Z",
   metrics: { invocations: 0, lastInvokedAt: null },
@@ -213,26 +214,44 @@ describe("private resources are creator-only (Q2 - admin does not pierce privacy
   });
 });
 
-describe("the plaintext API key is never served, to anyone", () => {
+describe("who may read the plaintext API key", () => {
   /**
-   * Stronger than the gating this replaces. The key used to be RETAINED on the record
-   * so the console could show it, and `publicAgentFor` stripped it for non-writers -
-   * which meant a table read (a PITR export, an over-broad grant) still yielded live
-   * keys, defeating the SHA-256 hashing sitting right next to it. Now the plaintext is
-   * returned exactly once at create/rotate and never stored, so there is nothing to
-   * strip and no caller - writer or not - can read one back.
+   * The key is stored in plaintext and prefilled in the UI - a deliberate DX-over-secrecy trade
+   * that REVERSES an earlier decision to keep only the hash. The reasoning, so the next reader
+   * doesn't undo it by accident: a deployment has many agents with one key each, so a key you can
+   * see exactly once means re-pasting a different secret per agent per browser - and people then
+   * keep them somewhere worse than we would. The cost is stated in SECURITY.md.
+   *
+   * What bounds the trade is WHO can read it, which is what these two tests pin.
    */
-  it("a writer who can see everything still gets no key from a read", async () => {
+  it("gives the plaintext key to a caller who can WRITE the agent", async () => {
+    // Adds no authority: a writer could rotate the key and read the new one anyway.
     caller = { userId: "alice", orgId: "org-A", role: "admin" };
+    const { agent } = (await (await req("GET", "/agents/agent-shared")).json()) as {
+      agent: Record<string, unknown>;
+    };
+    expect(agent.apiKey).toBe("ag_plaintext_for_tests_000000");
+  });
+
+  /**
+   * The bound. A viewer - or an editor looking at a co-member's shared agent - can SEE the agent
+   * but not change it, and the key would let them RUN it: a capability they don't otherwise have.
+   * Gated on exactly the same rule as config.env values.
+   */
+  it("withholds the key from a caller who can only VIEW the agent", async () => {
+    caller = { userId: "viewer", orgId: "org-A", role: "viewer" };
+    const { agent } = (await (await req("GET", "/agents/agent-shared")).json()) as {
+      agent: Record<string, unknown>;
+    };
+    expect(agent.apiKey).toBeUndefined();
+
     const list = (await (await req("GET", "/agents")).json()) as {
       agents: Record<string, unknown>[];
     };
+    // The LIST route too - it maps over many records and is the easy one to forget.
     for (const a of list.agents) expect(a.apiKey).toBeUndefined();
-    const one = (await (await req("GET", "/agents/agent-shared")).json()) as {
-      agent: Record<string, unknown>;
-    };
-    expect(one.agent.apiKey).toBeUndefined();
   });
+
 
   it("never serves the key HASH either", async () => {
     caller = { userId: "alice", orgId: "org-A", role: "admin" };

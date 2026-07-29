@@ -313,13 +313,16 @@ async function patchManagers(
 function publicAgentFor(principal: Principal, record: AgentRecord) {
   const pub = toPublic(record);
   if (!canWrite(principal, record)) {
-    // `config.env` is where users put per-agent third-party secrets, so redact the
-    // VALUES for a non-writer (a viewer, or a co-member of a shared agent). The
-    // agent's own API key needs no redaction: it is returned once at create/rotate
-    // and never stored, so it isn't on the record to leak.
+    // `config.env` is where users put per-agent third-party secrets, so redact the VALUES for a
+    // non-writer (a viewer, or a co-member of a shared agent).
     if (pub.config.env) {
       pub.config = { ...pub.config, env: redactEnvValues(pub.config.env) };
     }
+    // The agent's own invoke key is stored in plaintext so the UI can prefill it (a deliberate
+    // DX trade - see the Agent.apiKey wire type). It's gated on the SAME rule: it lets you run
+    // the agent, so only someone who could edit the agent anyway may read it. Dropped rather
+    // than starred, because a `***` placeholder pasted into a curl command fails confusingly.
+    delete pub.apiKey;
   }
   return pub;
 }
@@ -816,6 +819,8 @@ export function buildRoutes(deps: Deps): Hono<Env> {
       version: 1,
       invokeUrl: `${PUBLIC_API_URL}/agents/${id}/invoke`,
       apiKeyHash: hash,
+      // Stored in plaintext so the UI can prefill it for a writer - see Agent.apiKey.
+      apiKey,
       createdAt: now,
       updatedAt: now,
       metrics: freshMetrics(),
@@ -1018,8 +1023,9 @@ export function buildRoutes(deps: Deps): Hono<Env> {
     const auth = authorize(c.var.principal, await getAgent(c.req.param("id")), "write", "you can't rotate this agent's key");
     if (!auth.ok) return c.json({ error: auth.error }, auth.status);
     const { apiKey, hash } = generateApiKey();
-    // Only the hash is stored - the plaintext is returned once, here, and never persisted.
-    await updateAgent(auth.record.id, { apiKeyHash: hash });
+    // Both are stored: the hash is what invoke verifies against, the plaintext is what the UI
+    // prefills for a writer (see Agent.apiKey). Rotating replaces both together.
+    await updateAgent(auth.record.id, { apiKeyHash: hash, apiKey });
     const res: RotateKeyResponse = { apiKey };
     return c.json(res);
   });

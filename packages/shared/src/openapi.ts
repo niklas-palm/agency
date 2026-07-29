@@ -117,7 +117,9 @@ export function buildOpenApiSpec(serverUrl: string) {
         post: {
           tags: ["Agents"],
           summary: "Rotate the agent's API key",
-          description: "Invalidates the old key and returns a new one (shown once).",
+          description:
+            "Invalidates the old key and returns a new one. The new key is also stored, so it stays " +
+            "readable to anyone who can write the agent.",
           security: [{ accountToken: [] }],
           responses: {
             "200": jsonResponse("The new API key.", "RotateKeyResponse"),
@@ -807,7 +809,10 @@ export function buildOpenApiSpec(serverUrl: string) {
         agentKey: {
           type: "http",
           scheme: "bearer",
-          description: "An agent's API key (`ag_…`), shown once at creation. Authorizes only that agent.",
+          description:
+              "An agent's API key (`ag_…`). Authorizes invoking ONLY that agent. Stored in plaintext " +
+              "and returned on reads to callers who can write the agent, so tooling and the console " +
+              "can prefill it; withheld from anyone who can only view.",
         },
       },
       schemas: buildSchemas(),

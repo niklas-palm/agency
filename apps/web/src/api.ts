@@ -237,7 +237,8 @@ export async function getRunTrace(id: string, runId: string): Promise<AgentRunTr
 
 /**
  * Mint a new agent key, invalidating the old one. The plaintext comes back ONCE
- * here and is never stored, so this is the only recovery for a lost key.
+ * here, and also stored - so rotation is how you INVALIDATE a leaked key, not how you recover a
+ * lost one (a lost key is prefilled on the Run tab).
  */
 export async function rotateAgentKey(id: string): Promise<string> {
   const { apiKey } = await managed<RotateKeyResponse>(() =>

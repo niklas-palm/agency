@@ -96,8 +96,21 @@ two as prerequisites, not footnotes.
   validated. A compromised agent can therefore muddy **its own** tenant's telemetry. The claim
   lock means no cross-tenant reach; the read side coerces so one bad row can't break a
   dashboard.
-- **Secrets are plaintext at rest in DynamoDB.** Per-agent `config.env` values, integration
-  secrets and a Slack trigger's `slackSecrets` (signing secret + bot token) are stored
+- **Agent API keys are stored in plaintext, deliberately.** Each agent's `ag_…` key is kept on
+  its record and returned on reads to any caller who can WRITE the agent, so the console can
+  prefill it in the Run tab and the integration samples. This reverses an earlier
+  hash-only design, and it is a considered DX trade rather than an oversight: a deployment has
+  many agents with one key each, so a key visible exactly once means re-pasting a different
+  secret per agent per browser, which in practice pushes people to store them somewhere worse.
+  What bounds it: the key authorizes invoking ONE agent and nothing else; a viewer of a shared
+  agent is refused it (same gate as `config.env` values); the SHA-256 hash is still what invoke
+  verifies against, so the plaintext is never on the auth path; and rotation invalidates a leaked
+  key immediately. **What it costs:** anything that can read the agents table - a PITR export, an
+  over-broad IAM grant, or `IngestFn` (which holds agents-table read for the Slack proxy) - yields
+  live invoke keys for every agent in every org. If you need that closed, store only
+  `apiKeyHash` and drop `apiKey` from the record; the UI degrades to a paste field.
+- **Other secrets are plaintext at rest in DynamoDB too.** Per-agent `config.env` values,
+  integration secrets and a Slack trigger's `slackSecrets` (signing secret + bot token) are stored
   unencrypted beyond DynamoDB's own at-rest encryption, and `config.env` is
   duplicated into every config version snapshot. Values are redacted from API reads for
   non-writers. Encrypting them at rest (KMS, or secret references) is planned, not done.

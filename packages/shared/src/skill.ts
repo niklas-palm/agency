@@ -56,9 +56,10 @@ Two kinds of credential, for two kinds of call:
    that org. If a call returns \`403\`, either your token lacks the required scope or
    your role can't perform that action; ask the user to mint a token with the scope,
    or to grant you a higher role.
-2. **Agent API key** (\`ag_…\`) - returned once when an agent is created (and
-   rotatable). It authenticates **only that agent's** invoke + poll endpoints.
-   Use it to trigger and observe a specific agent; it cannot manage agents.
+2. **Agent API key** (\`ag_…\`) - returned when an agent is created, and on every
+   \`GET /agents/:id\` to a caller who can WRITE that agent (so you can read it back
+   rather than storing it yourself). It authenticates **only that agent's** invoke +
+   poll endpoints - it cannot manage agents. Rotate it to invalidate a leaked one.
 
 ### Scopes and roles
 

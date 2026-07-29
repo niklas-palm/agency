@@ -27,6 +27,13 @@ export interface AgentRecord {
   invokeUrl: string;
   /** SHA-256 hash of the API key, for the timing-safe verify on invoke/poll. */
   apiKeyHash: string;
+  /**
+   * The API key in PLAINTEXT, so the UI can prefill it in the Run tab and the integration
+   * samples for anyone who can write the agent. A deliberate DX-over-secrecy trade - see the
+   * `Agent.apiKey` wire type and SECURITY.md. The hash above is still what invoke verifies
+   * against, so this field is never on the auth path.
+   */
+  apiKey?: string;
   createdAt: string;
   updatedAt: string;
   metrics: AgentMetrics;
@@ -95,9 +102,12 @@ export function normalizeConfig(config: AgentConfig): AgentConfig {
  * credential - a table read (a PITR export, an over-broad grant) yields hashes only.
  */
 export function toPublic(r: AgentRecord): Agent {
-  // Both stripped fields are credentials that must never reach a read response: the API key
-  // hash, and the Slack signing secret + bot token. Anything added to AgentRecord that is
-  // write-only belongs in this destructure.
+  // Both stripped fields must never reach a read response: the API key HASH (no reader needs it,
+  // and publishing it invites offline cracking) and the Slack signing secret + bot token.
+  //
+  // `apiKey` deliberately survives - it's the plaintext the UI prefills - but it is NOT
+  // unconditionally public: every read route goes through `publicAgentFor`, which drops it for a
+  // caller who can't write the agent. Use that, never `toPublic` directly, on a read path.
   const { apiKeyHash: _drop, slackSecrets: _slack, ...pub } = r;
   // Legacy records predate versioning; treat them as version 1.
   return { ...pub, version: pub.version ?? 1, config: normalizeConfig(pub.config) };
@@ -152,6 +162,8 @@ export async function updateAgent(
     config?: AgentConfig;
     version?: number;
     apiKeyHash?: string;
+    /** The plaintext key, kept in step with apiKeyHash on create + rotate. */
+    apiKey?: string;
     /** String to set the description; `null` to clear it (remove the attribute). */
     description?: string | null;
     shared?: boolean;
@@ -206,6 +218,10 @@ export async function updateAgent(
   } else if (patch.slackSecrets !== undefined) {
     sets.push("slackSecrets = :ss");
     values[":ss"] = patch.slackSecrets;
+  }
+  if (patch.apiKey !== undefined) {
+    sets.push("apiKey = :ak");
+    values[":ak"] = patch.apiKey;
   }
   if (patch.version !== undefined) {
     sets.push("version = :v");

@@ -115,7 +115,8 @@ export function AgentDetail({ id }: { id: string }) {
       </div>
 
       {activeTab === "monitor" && <Monitor agentId={agent.id} />}
-      {activeTab === "run" && <Run agent={agent} />}
+      {/* Keyed on the API key so a rotation re-mounts the panel with the new one. */}
+      {activeTab === "run" && <Run key={agent.apiKey ?? "nokey"} agent={agent} />}
       {activeTab === "configure" && <ConfigEditor agent={agent} onSaved={setAgent} canWrite={canManage(agent)} />}
       {activeTab === "versions" && <Versions agent={agent} onRestored={setAgent} canWrite={canManage(agent)} />}
       {activeTab === "integrate" && (
@@ -126,7 +127,8 @@ export function AgentDetail({ id }: { id: string }) {
           </header>
           {/* No key to prefill: the plaintext is shown once at create/rotate and never
               stored, so the snippet carries a placeholder. Rotate to get a fresh one. */}
-          <CodeSamples invokeUrl={agent.invokeUrl} />
+          {/* The real key, so the samples are copy-paste runnable without editing. */}
+          <CodeSamples invokeUrl={agent.invokeUrl} apiKey={agent.apiKey} />
           {canManage(agent) && <RotateKey agentId={agent.id} />}
         </section>
       )}
@@ -506,9 +508,12 @@ function ConfigEditor({ agent, onSaved, canWrite }: { agent: Agent; onSaved: (a:
  * Sending a follow-up while it's running demonstrates mid-turn injection.
  */
 function Run({ agent }: { agent: Agent }) {
-  // The key isn't stored, so it can't be prefilled - paste it (it's shown once at
-  // create, and `Rotate key` mints a fresh one).
-  const [apiKey, setApiKey] = useState("");
+  // Prefilled from the agent record: the key is stored in plaintext and returned to anyone who
+  // can WRITE the agent, so running your own agent needs no paste at all. Still editable, so a
+  // rotated key or someone else's can be tried without persisting anything.
+  // Initialized at mount, so `key={agent.apiKey}` on the panel below re-mounts this after a
+  // rotation - otherwise the poll would update the record while this input kept the dead key.
+  const [apiKey, setApiKey] = useState(agent.apiKey ?? "");
   const [showKey, setShowKey] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -653,6 +658,18 @@ function Run({ agent }: { agent: Agent }) {
               {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </button>
           </div>
+          {apiKey && (
+            <p className="mt-1.5 text-[11px] text-muted">
+              Remembered in this browser so you don't re-paste it.{" "}
+              <button
+                type="button"
+                className="underline transition-colors hover:text-ink"
+                onClick={() => setApiKey("")}
+              >
+                Forget it
+              </button>
+            </p>
+          )}
         </div>
         <div>
           <div className="label mb-2">Message</div>

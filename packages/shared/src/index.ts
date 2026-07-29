@@ -225,6 +225,20 @@ export interface Agent {
   managers?: string[];
   config: AgentConfig;
   /**
+   * The agent's invoke key, in plaintext, for callers who may WRITE this agent.
+   *
+   * A deliberate, documented trade: the platform's own DX is the priority here. There is one key
+   * per agent and a deployment has many agents, so a key you can only see once means re-pasting
+   * a different secret for every agent, on every browser - which in practice means people keep
+   * them in worse places than we would. Prefilling the Run tab and the integration samples is
+   * what makes an agent testable in one click.
+   *
+   * Two things bound it: it is returned ONLY to a principal who can already write the agent
+   * (a viewer of a shared agent gets it redacted, exactly like `config.env` values), and it
+   * authorizes invoking THIS one agent - nothing else. See SECURITY.md.
+   */
+  apiKey?: string;
+  /**
    * A short human description shown on the roster. NOT part of the config, so
    * editing it does not create a new version - it's metadata about the agent,
    * not behavior. Optional.

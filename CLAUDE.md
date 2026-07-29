@@ -405,9 +405,18 @@ agent's tools (bash) read them by name and the model is told which keys exist (n
 values). For per-agent third-party secrets, so the VALUES are readable only by a caller who can
 WRITE the agent (creator/admin/manager) - a viewer or co-member of a shared agent gets the key
 names with each value redacted to `***`, on both `GET /agents/:id` and the versions history
-(each version is a full config snapshot). The agent's own API key needs no such gate: the
-plaintext is returned once at create/rotate and never stored, so the agents table holds no
-usable credential at all.
+(each version is a full config snapshot). **The agent's own API key is gated the same way**: it
+is stored in PLAINTEXT and returned on reads to a caller who can write the agent, so the console
+prefills it in the Run tab and the integration samples; a viewer of a shared agent doesn't get it
+at all (dropped, not starred - a `***` pasted into curl fails confusingly).
+
+That is a deliberate DX-over-secrecy trade, reversing an earlier decision to store only the hash.
+The reasoning, so it isn't undone by accident: a deployment has many agents with one key each, so
+a key you can see exactly once means re-pasting a different secret per agent per browser - and
+people then keep those keys somewhere worse than we would. It gives a writer no authority they
+lacked (they could rotate and read the new key anyway) and the key invokes ONE agent. The cost -
+a table read yields live keys - is stated in SECURITY.md. The key HASH is still what invoke
+verifies against, so the plaintext is never on the auth path.
 
 *Deliberate limit of that redaction:* it covers **config**, not **output**. A trajectory
 records what the agent did - prompts, tool inputs, tool results - and an agent that echoes
