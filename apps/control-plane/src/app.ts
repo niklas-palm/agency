@@ -8,6 +8,7 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { IS_LOCAL, USER_POOL_ID } from "./config.js";
+import { logRequest } from "./log.js";
 import { ORG_HEADER } from "./auth.js";
 import type { ScheduleProvisioner } from "./provisioner/schedule.js";
 import { LocalScheduleProvisioner } from "./provisioner/schedule-local.js";
@@ -86,13 +87,28 @@ export function buildApp(deps: Deps = buildDeps()): Hono {
     }),
   );
 
+  // One line per request - failures always, successes only under DEBUG (log.ts).
+  // Registered before the routes so it times the whole handler, and it covers a
+  // handler that THREW too: Hono's onError produces the response inside the compose
+  // chain, so `next()` resolves and `c.res` already carries the 500/503.
+  app.use("*", async (c, next) => {
+    const started = Date.now();
+    await next();
+    logRequest(c.req.method, c.req.path, c.res.status, Date.now() - started);
+  });
+
   app.get("/health", (c) => c.json({ ok: true }));
   app.route("/", buildRoutes(deps));
 
   // Map transient AWS errors to 503 so callers can distinguish "retry me" from a
   // permanent failure; everything else is a generic 500 (no stack leaked).
   app.onError((err, c) => {
+    // Method, path and status come from the request line the middleware above logs
+    // for every failure, so these two only add what it can't know: WHICH error.
     if (isTransient(err)) {
+      // Logged, not swallowed: a throttle/conflict storm used to be visible only as
+      // 503s on the client side, with nothing naming which dependency was throttling.
+      console.error("transient error", (err as Error).name);
       return c.json({ error: "temporarily unavailable, retry shortly" }, 503);
     }
     console.error("unhandled error", err);

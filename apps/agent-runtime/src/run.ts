@@ -6,6 +6,7 @@
 import type { Agent } from "@strands-agents/sdk";
 import type { TrajectoryEventType, TokenUsage, ResolvedIntegration } from "@agency/shared";
 import { record, type EventFields } from "./trajectory.js";
+import { debug } from "./log.js";
 import { integrationCallLabel } from "./integration-tools.js";
 import {
   MAX_TURNS_PER_INVOCATION,
@@ -172,6 +173,9 @@ export async function runAgentTurn(
           ? { ...parsed.fields, toolName: integrationCallLabel(parsed.fields.toolName, parsed.fields.input, integrations) }
           : parsed.fields;
       await record(sessionId, agentId, parsed.type, { runId, ...fields });
+      // What the agent is doing, step by step - the line you want when a local run
+      // goes somewhere unexpected. Names only: the content is in the trajectory.
+      debug("step", { type: parsed.type, tool: fields.toolName ?? "-" });
       if (parsed.type === "text" && fields.content) {
         finalText = fields.content; // last assistant text is the answer
       } else if (parsed.type === "tool_input" && fields.toolName) {

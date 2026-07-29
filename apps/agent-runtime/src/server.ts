@@ -21,6 +21,7 @@ import { buildAgent } from "./agent.js";
 import { runAgentTurn, budgetTripMessage } from "./run.js";
 import { record } from "./trajectory.js";
 import { setIngestToken, setIngestContext } from "./ingest.js";
+import { debug } from "./log.js";
 import { enqueueMessage, takePending } from "./mailbox.js";
 import {
   newAccumulator,
@@ -109,6 +110,11 @@ const app = new BedrockAgentCoreApp({
           metrics.injections += 1; // count only real injections
           metrics.invocations += 1; // each accepted injection is an invocation
         }
+        debug("invocation", {
+          agent: agentId,
+          session: sessionId,
+          status: accepted ? "injected" : "rejected",
+        });
         return { status: accepted ? "injected" : "rejected", sessionId };
       }
 
@@ -143,6 +149,15 @@ const app = new BedrockAgentCoreApp({
       // startTurn handles its own errors, but a rejection must never leave `working`
       // stuck true (which would wedge the session into "inject-only").
       working = true;
+      debug("invocation", {
+        agent: agentId,
+        session: sessionId,
+        status: "triggered",
+        model: config.model,
+        skills: skills.length,
+        integrations: integrations.length,
+        promptChars: prompt.length,
+      });
       void runTurnTracked(sessionId, agentId, config, skills, integrations, fromSlack, prompt).catch((e) => {
         console.error("turn task failed", e);
         working = false;
@@ -221,6 +236,14 @@ async function startTurn(
       // lost by not writing session_end here.
       next = drain();
       if (next !== undefined) continue;
+      debug("turn complete", {
+        agent: agentId,
+        session: sessionId,
+        run: metrics?.runId,
+        ms: Date.now() - spanStart,
+        tools: turn.toolCalls.length,
+        stopReason: turn.stopReason ?? "none",
+      });
       await record(sessionId, agentId, "session_end", { runId: metrics?.runId, content: turn.finalText });
       // Record this invocation's active duration (span start → now) before the
       // summary write, so the summary carries the per-invocation timing. The loop
