@@ -20,7 +20,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
 import { tool } from "@strands-agents/sdk";
 import { z } from "zod";
-import type { ResolvedIntegration, IntegrationCallRequest } from "@agency/shared";
+import { INTEGRATION_CALL_TOOL, type ResolvedIntegration, type IntegrationCallRequest } from "@agency/shared";
 import { postIngestRaw } from "./ingest.js";
 import { workDir, sandboxed } from "./tools.js";
 
@@ -30,6 +30,32 @@ const CALL_TIMEOUT_MS = 20_000;
 export interface IntegrationToolContext {
   agentId: string;
   sessionId: string;
+}
+
+/**
+ * How one tool call is NAMED in the trajectory + the metrics tool breakdown:
+ * `call_integration:<integration name>` for an integration call, the tool's own name
+ * for anything else.
+ *
+ * The bare tool name collapses every downstream API into one bar on the Monitor tab's tool
+ * breakdown, leaving the opaque `integrationId` uuid in the args as the only clue to WHICH
+ * API ran. Resolved here at record time, from the manifest that rode the invoke payload,
+ * because that is the only moment the name is known for sure: traces are kept forever, and
+ * an integration can later be renamed or deleted.
+ *
+ * An id the manifest doesn't know keeps the bare tool name - the call fails anyway
+ * (`callback` rejects it), and inventing a label from model-supplied input is exactly
+ * how a hallucinated name would end up as a metric key.
+ */
+export function integrationCallLabel(
+  toolName: string,
+  input: unknown,
+  integrations: ResolvedIntegration[],
+): string {
+  if (toolName !== INTEGRATION_CALL_TOOL || typeof input !== "object" || input === null) return toolName;
+  const { integrationId } = input as { integrationId?: unknown };
+  const match = integrations.find((i) => i.id === integrationId);
+  return match ? `${INTEGRATION_CALL_TOOL}:${match.name}` : toolName;
 }
 
 /**
@@ -69,7 +95,7 @@ export function buildIntegrationTools(
   });
 
   const callTool = tool({
-    name: "call_integration",
+    name: INTEGRATION_CALL_TOOL,
     description:
       "Call one operation of an attached integration. The platform injects the " +
       "credential and forwards to the configured API - you never handle secrets. " +

@@ -75,7 +75,12 @@ back-and-forth triggers). The runtime accumulates in memory
 (`session-metrics.ts`: turns, tool uses + per-tool breakdown, injections, and
 token usage) and POSTs the summary to the control-plane's **ingest API** each
 time the session goes idle, and on error - the runtime writes no DynamoDB itself
-(its role is Bedrock-only; see docs/runtime.md). The ingest handler **overwrites**
+(its role is Bedrock-only; see docs/runtime.md). The breakdown is keyed by the tool
+name `run.ts` recorded on the trajectory event, so an integration call is counted as
+`call_integration:<integration name>` - one key per downstream API, not one for all
+of them (docs/runtime.md explains the labelling; rows written before it keep the bare
+`call_integration` key, so a window spanning the change shows both). The ingest
+handler **overwrites**
 one row per (agentId, runId). Token usage comes from the Strands Agent's own accumulator
 (`agent.metrics.accumulatedUsage`, read in `run.ts` after each turn) - it's
 **cumulative** across the session (the Meter is never reset), so the accumulator
@@ -212,7 +217,11 @@ The agent **detail page opens on the Monitor tab** (front and center): stat tile
 a per-session cost strip (mean/p50/p95/p99), charts for sessions & invocations,
 errors and spend (the last two only when there are any), and a per-tool chart +
 breakdown - over a selectable 1h/6h/24h/7d/30d window (default 24h), refreshing
-every 15s. Buckets are hourly for windows up to 7 days and daily above, so the
+every 15s. The per-tool views are keyed by the same label the trajectory uses, so
+an integration call counts under the downstream API it called instead of sharing
+one `call_integration` bar (see docs/runtime.md); `prettyTool` renders that key as
+the integration's own name. Buckets are hourly for windows up to 7 days and daily
+above, so the
 default view is hourly. A past-runs list sits below the charts. The **Versions tab** lists
 the history; expanding a version shows its config, a restore action, and the same
 Monitor scoped to that version. The agent list shows lifetime run counts on their

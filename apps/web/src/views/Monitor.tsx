@@ -423,7 +423,8 @@ function Chart({
 
 /**
  * The per-tool time chart: one smooth line per tool used in the window, so you
- * can see which tools are used over time (skill activation shows as `skills`).
+ * can see which tools are used over time (skill activation shows as `skills`; an
+ * integration call shows as the API it called - see `prettyTool`).
  */
 function ToolChart({ metrics }: { metrics: MetricsSummary }) {
   const uid = useId().replace(/:/g, "");
