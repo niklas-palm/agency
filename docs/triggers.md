@@ -227,6 +227,42 @@ being stored, so only genuinely NEW ids are checked; shortening or clearing the 
 after a disconnect. Re-validating the whole list on every save also cost a Slack round trip per
 channel, so a ten-channel agent paid ten calls to drop one.
 
+### It works in isolated network mode
+
+Worth stating because the answer isn't obvious: an agent with `networkMode: "isolated"` has no
+public egress at all, yet Slack still works. The agent never talks to Slack - it posts to
+`/internal/slack/call`, which it reaches over the **execute-api PrivateLink endpoint** exactly like
+its telemetry, and the control-plane side (`IngestFn`, not VPC-attached) makes the outbound call.
+
+So the Slack tools need no new endpoint and no egress exception; they inherit the integrations
+proxy's arrangement, because they sit on the same Hono app behind the same private REST API. The
+isolation guarantee is unweakened: the microVM still cannot reach the internet, and it still holds
+no Slack credential.
+
+### The agent's Slack surface
+
+Six tools, matching the sibling slack-dev agent so the two behave alike in one workspace:
+
+| Tool | What it's for |
+|---|---|
+| `slack_reply` | Post into the thread. Text merely *returned* never reaches Slack. |
+| `slack_set_status` | 🟡 working → 🟢 done / 🔴 failed / ❓ needs_input, mutually exclusive. |
+| `slack_read_thread` | The conversation, oldest first, with file ids. |
+| `slack_ask_user` | Ask a question, set ❓, and END the turn - they must mention again. |
+| `slack_upload_file` | Send a file from the workspace: a log, a diff, a report. |
+| `slack_download_file` | Read an attachment into the workspace. |
+
+Two boundaries in that set are load-bearing. `slack_download_file` checks Slack's `shares` to
+confirm the file was posted in **this** thread - `files.info` would otherwise return any file the
+bot's token can see, including from channels the agent was never invited to, and the channel
+allowlist wouldn't help because a read isn't a post. And both file tools resolve their paths through
+the same `sandboxed()` helper `write_file` uses, so neither can reach outside the workspace (an
+upload of `/proc/1/environ` would otherwise be one tool call away).
+
+Files cross the proxy as base64 in JSON, so both directions are capped at ~3 MB - a Lambda response
+ceiling of ~6 MB after encoding. Oversized is refused with a reason rather than truncated, since a
+truncated upload is a corrupt file.
+
 ### The channel allowlist is a security control
 
 An agent with a bash tool that answers anywhere it's invited means **anyone who can `/invite`

@@ -25,6 +25,12 @@ const SLACK_TIMEOUT_MS = 10_000;
 const THREAD_LIMIT = 50;
 
 /**
+ * Cap on file bytes in either direction. The content crosses the proxy as base64 in a JSON body,
+ * and a Lambda response is ~6 MB - so this is sized to stay clear of that after encoding.
+ */
+const MAX_UPLOAD_BYTES = 3_000_000;
+
+/**
  * The status reactions, and what each means.
  *
  * MUTUALLY EXCLUSIVE: setting one removes the others, so the message carries exactly one status
@@ -66,18 +72,32 @@ export function parseSlackSessionId(sessionId: string): { channel: string; threa
 }
 
 export interface SlackCallRequest {
-  action: "reply" | "set_status" | "read_thread";
+  action: "reply" | "set_status" | "read_thread" | "ask_user" | "upload_file" | "download_file";
   /** For `reply`: the message text. */
   text?: string;
   /** For `set_status`: which status reaction to set. */
   status?: SlackStatus;
+  /** For `upload_file`: the file's contents (base64) and name. */
+  content?: string;
+  filename?: string;
+  /** For `download_file`: the id, from read_thread's file metadata. */
+  fileId?: string;
 }
 
 export type SlackCallResult =
   | {
       ok: true;
       ts?: string;
-      messages?: Array<{ user: string; text: string; ts: string }>;
+      messages?: Array<{
+        user: string;
+        text: string;
+        ts: string;
+        files?: Array<{ id: string; name: string; mimetype?: string }>;
+      }>;
+      /** For `upload_file`/`download_file`: what happened. */
+      file?: { id?: string; name?: string; path?: string; bytes?: number };
+      /** For `download_file`: the bytes, base64, for the runtime to write to the workspace. */
+      content?: string;
       truncated?: boolean;
     }
   | { error: string; hint: string };
@@ -133,6 +153,33 @@ export async function callSlack(
     return readThread(botToken, target.channel, target.threadTs);
   }
 
+  if (req.action === "ask_user") {
+    // Post the question AND set ❓ in one call. Two separate tool calls would let the agent post a
+    // question and forget the status - which reads as a stalled run rather than one waiting on a
+    // person - and the whole point of ❓ is that a human can see at a glance who is blocked.
+    const text = (req.text ?? "").trim();
+    if (!text) return { error: "text is required", hint: "Pass the question to ask." };
+    const posted = await post("chat.postMessage", botToken, {
+      channel: target.channel,
+      thread_ts: target.threadTs,
+      text,
+    });
+    if ("error" in posted) return posted;
+    await setStatus(botToken, target, replyToTs, "needs_input");
+    return posted;
+  }
+
+  if (req.action === "upload_file") {
+    return uploadFile(botToken, target, req.filename ?? "file", req.content ?? "");
+  }
+
+  if (req.action === "download_file") {
+    if (!req.fileId) {
+      return { error: "fileId is required", hint: "Call read_thread first; each file carries an id." };
+    }
+    return downloadFile(botToken, target, req.fileId);
+  }
+
   if (req.action === "reply") {
     const text = (req.text ?? "").trim();
     if (!text) return { error: "text is required", hint: "Pass the message to post." };
@@ -150,16 +197,7 @@ export async function callSlack(
       hint: `Use one of: ${Object.keys(SLACK_STATUS_EMOJI).join(", ")}.`,
     };
   }
-  const timestamp = replyToTs || target.threadTs;
-  // Clear the other statuses first, so the message shows one state rather than a pile of them.
-  // Concurrently, and failures ignored: a stale reaction that won't budge is cosmetic, and must
-  // not stop the new status landing.
-  await Promise.all(
-    Object.values(SLACK_STATUS_EMOJI)
-      .filter((e) => e !== name)
-      .map((e) => post("reactions.remove", botToken, { channel: target.channel, timestamp, name: e })),
-  );
-  return post("reactions.add", botToken, { channel: target.channel, timestamp, name });
+  return setStatus(botToken, target, replyToTs, req.status as SlackStatus);
 }
 
 /**
@@ -171,9 +209,16 @@ async function post(
   method: string,
   botToken: string,
   payload: Record<string, unknown>,
+  /**
+   * Query parameters, for the handful of Slack methods that take form/query args rather than a JSON
+   * body (`files.info`, `files.getUploadURLExternal`). Passing them as JSON silently returns
+   * `invalid_arguments`, which is a confusing way to learn this.
+   */
+  query?: Record<string, string>,
 ): Promise<SlackCallResult> {
   try {
-    const res = await fetch(`${SLACK_API}/${method}`, {
+    const qs = query ? `?${new URLSearchParams(query)}` : "";
+    const res = await fetch(`${SLACK_API}/${method}${qs}`, {
       method: "POST",
       headers: {
         authorization: `Bearer ${botToken}`,
@@ -189,7 +234,10 @@ async function post(
       const err = body?.error ?? `http ${res.status}`;
       return { error: `Slack rejected the call: ${err}`, hint: hintFor(err) };
     }
-    return { ok: true, ...(body.ts ? { ts: body.ts } : {}) };
+    // Pass Slack's own fields through alongside `ok`. The file methods need them (`file` from
+    // files.info, `upload_url`/`file_id` from the upload ticket), and normalizing them away meant
+    // download_file could never see a URL to fetch.
+    return { ...body, ok: true } as SlackCallResult;
   } catch {
     return { error: "could not reach Slack", hint: "Transient - try once more." };
   }
@@ -232,11 +280,25 @@ async function readThread(
       const err = body?.error ?? `http ${res.status}`;
       return { error: `Slack rejected the read: ${err}`, hint: hintFor(err) };
     }
-    const messages = (body.messages ?? []).map((m) => ({
-      user: typeof m.user === "string" ? m.user : typeof m.bot_id === "string" ? "bot" : "unknown",
-      text: typeof m.text === "string" ? m.text : "",
-      ts: typeof m.ts === "string" ? m.ts : "",
-    }));
+    const messages = (body.messages ?? []).map((m) => {
+      const files = Array.isArray(m.files)
+        ? (m.files as Array<Record<string, unknown>>)
+            .filter((f) => typeof f.id === "string")
+            .map((f) => ({
+              id: f.id as string,
+              name: typeof f.name === "string" ? f.name : "",
+              // The agent needs the id to call download_file, so surfacing it here is what makes
+              // that tool reachable at all - without it there's no way to name an attachment.
+              ...(typeof f.mimetype === "string" ? { mimetype: f.mimetype } : {}),
+            }))
+        : [];
+      return {
+        user: typeof m.user === "string" ? m.user : typeof m.bot_id === "string" ? "bot" : "unknown",
+        text: typeof m.text === "string" ? m.text : "",
+        ts: typeof m.ts === "string" ? m.ts : "",
+        ...(files.length ? { files } : {}),
+      };
+    });
     return { ok: true, messages, ...(body.has_more ? { truncated: true } : {}) };
   } catch {
     return { error: "could not reach Slack", hint: "Transient - try once more." };
@@ -262,4 +324,139 @@ export async function acknowledgeMention(
     name: SLACK_ACK_EMOJI,
   });
   if ("error" in res) console.warn("slack ack reaction failed", channel, res.error);
+}
+
+/**
+ * Set one status and clear the other three.
+ *
+ * Exclusive on purpose: a message should show what the run IS, not every state it has passed
+ * through. The removes go out concurrently and their failures are ignored - a stale reaction is
+ * cosmetic and must never stop the new status landing.
+ */
+async function setStatus(
+  botToken: string,
+  target: { channel: string; threadTs: string },
+  replyToTs: string | undefined,
+  status: SlackStatus,
+): Promise<SlackCallResult> {
+  const name = SLACK_STATUS_EMOJI[status];
+  const timestamp = replyToTs || target.threadTs;
+  await Promise.all(
+    Object.values(SLACK_STATUS_EMOJI)
+      .filter((e) => e !== name)
+      .map((e) => post("reactions.remove", botToken, { channel: target.channel, timestamp, name: e })),
+  );
+  return post("reactions.add", botToken, { channel: target.channel, timestamp, name });
+}
+
+/**
+ * Upload a file into the thread.
+ *
+ * Slack's modern upload is three steps (get a URL, PUT the bytes, complete), and the agent must
+ * not see any of it - it hands us base64 and a name. Capped because the bytes travel as JSON
+ * through the proxy: a Lambda response is ~6 MB, so a larger file has to be refused with a reason
+ * rather than truncated into a corrupt upload.
+ */
+async function uploadFile(
+  botToken: string,
+  target: { channel: string; threadTs: string },
+  filename: string,
+  contentB64: string,
+): Promise<SlackCallResult> {
+  let bytes: Buffer;
+  try {
+    bytes = Buffer.from(contentB64, "base64");
+  } catch {
+    return { error: "content must be base64", hint: "Base64-encode the file before uploading." };
+  }
+  if (!bytes.length) return { error: "the file is empty", hint: "Nothing to upload." };
+  if (bytes.length > MAX_UPLOAD_BYTES) {
+    return {
+      error: `file too large (${bytes.length} bytes, max ${MAX_UPLOAD_BYTES})`,
+      hint: "Upload an excerpt, or summarise it in a message instead.",
+    };
+  }
+
+  const ticket = await post("files.getUploadURLExternal", botToken, {}, {
+    filename,
+    length: String(bytes.length),
+  });
+  if ("error" in ticket) return ticket;
+  const uploadUrl = (ticket as { upload_url?: string }).upload_url;
+  const fileId = (ticket as { file_id?: string }).file_id;
+  if (!uploadUrl || !fileId) {
+    return { error: "Slack did not return an upload ticket", hint: "Transient - try once more." };
+  }
+
+  try {
+    const put = await fetch(uploadUrl, {
+      method: "POST",
+      body: new Uint8Array(bytes),
+      signal: AbortSignal.timeout(SLACK_TIMEOUT_MS),
+    });
+    if (!put.ok) return { error: `upload failed (http ${put.status})`, hint: "Transient - try once more." };
+  } catch {
+    return { error: "could not reach Slack's upload endpoint", hint: "Transient - try once more." };
+  }
+
+  // `files` is a JSON-encoded array even though we send one file - Slack's API, not our choice.
+  const done = await post("files.completeUploadExternal", botToken, {
+    files: [{ id: fileId, title: filename }],
+    channel_id: target.channel,
+    thread_ts: target.threadTs,
+  });
+  if ("error" in done) return done;
+  return { ok: true, file: { id: fileId, name: filename, bytes: bytes.length } };
+}
+
+/**
+ * Download a file attached to THIS thread into the agent's workspace.
+ *
+ * The thread check is the security boundary: `files.info` would happily return any file the token
+ * can see, so without it an agent could name a file id from another channel and read it. The bytes
+ * come back base64 for the runtime to write, so the proxy never touches the agent's filesystem.
+ */
+async function downloadFile(
+  botToken: string,
+  target: { channel: string; threadTs: string },
+  fileId: string,
+): Promise<SlackCallResult> {
+  const info = await post("files.info", botToken, {}, { file: fileId });
+  if ("error" in info) return info;
+  const file = (info as { file?: Record<string, unknown> }).file;
+  const url = typeof file?.url_private_download === "string" ? file.url_private_download : "";
+  if (!url) return { error: "that file has no downloadable content", hint: "Check the file id." };
+
+  // Confine it to this thread. `shares` lists where the file appears; the agent may only read what
+  // was attached to the conversation it was invoked in.
+  const shares = (file?.shares ?? {}) as Record<string, Record<string, unknown>>;
+  const inThisChannel = Object.values(shares).some((scope) => target.channel in scope);
+  if (!inThisChannel) {
+    return {
+      error: "that file was not shared in this thread",
+      hint: "You can only read files attached to the conversation you were invoked in.",
+    };
+  }
+
+  try {
+    const res = await fetch(url, {
+      headers: { authorization: `Bearer ${botToken}` },
+      signal: AbortSignal.timeout(SLACK_TIMEOUT_MS),
+    });
+    if (!res.ok) return { error: `download failed (http ${res.status})`, hint: "Transient - try again." };
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length > MAX_UPLOAD_BYTES) {
+      return {
+        error: `file too large to return (${buf.length} bytes)`,
+        hint: "Ask the person to share a smaller excerpt.",
+      };
+    }
+    return {
+      ok: true,
+      file: { id: fileId, name: typeof file?.name === "string" ? file.name : fileId, bytes: buf.length },
+      content: buf.toString("base64"),
+    };
+  } catch {
+    return { error: "could not download the file", hint: "Transient - try again." };
+  }
 }

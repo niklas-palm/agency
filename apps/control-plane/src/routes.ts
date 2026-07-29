@@ -724,8 +724,9 @@ export function buildRoutes(deps: Deps): Hono<Env> {
     }) | null;
     const claims = verifySessionToken(tokenOf(c));
     if (!claims) return c.json({ error: "invalid ingest token" }, 401);
-    if (body?.action !== "reply" && body?.action !== "set_status" && body?.action !== "read_thread") {
-      return c.json({ error: "action must be reply, set_status or read_thread" }, 400);
+    const SLACK_ACTIONS = ["reply", "set_status", "read_thread", "ask_user", "upload_file", "download_file"];
+    if (typeof body?.action !== "string" || !SLACK_ACTIONS.includes(body.action)) {
+      return c.json({ error: `action must be one of: ${SLACK_ACTIONS.join(", ")}` }, 400);
     }
     // agentId + sessionId come from the VERIFIED token, never the body - so the call cannot be
     // aimed at another agent or another thread.

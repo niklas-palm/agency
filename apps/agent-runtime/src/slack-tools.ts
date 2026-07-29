@@ -13,7 +13,10 @@
  */
 import { tool } from "@strands-agents/sdk";
 import { z } from "zod";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import { postIngestRaw } from "./ingest.js";
+import { workDir, sandboxed } from "./tools.js";
 
 /** Slack is normally fast; a hang here would hold the agent turn open. */
 const SLACK_TIMEOUT_MS = 15_000;
@@ -78,7 +81,77 @@ export function buildSlackTools(fromSlack: boolean) {
     callback: async () => call({ action: "read_thread" }),
   });
 
-  return [reply, setStatus, readThread];
+  const askUser = tool({
+    name: "slack_ask_user",
+    description:
+      "Ask the person a question in the thread and STOP. Posts the question, sets the ❓ status, " +
+      "and ends your turn - they must @-mention you again to continue. Use it when a request is " +
+      "genuinely ambiguous or the decision is theirs, not to confirm routine steps. Guessing and " +
+      "being wrong costs them more than being asked.",
+    inputSchema: z.object({ text: z.string().min(1).describe("The question, in Slack mrkdwn.") }),
+    callback: async ({ text }) => call({ action: "ask_user", text }),
+  });
+
+  const uploadFile = tool({
+    name: "slack_upload_file",
+    description:
+      "Upload a file from your workspace into the thread - a log, a diff, a report, an image. " +
+      "Prefer this over pasting a long block into a message: the person cannot see your workspace, " +
+      "so a path is useless to them. Max ~3 MB.",
+    inputSchema: z.object({
+      path: z.string().describe("Relative path in your workspace, e.g. out/report.md"),
+      filename: z.string().optional().describe("Name to show in Slack. Defaults to the file's name."),
+    }),
+    callback: async ({ path, filename }) => {
+      // Confined to the workspace by the same helper write_file uses - an agent must not be able to
+      // upload /proc/1/environ or an AWS credential file to a channel.
+      const full = sandboxed(workDir(), path);
+      if (!full) {
+        return { error: "path escapes the workspace", hint: "Use a relative path inside your workspace." };
+      }
+      let content: string;
+      try {
+        content = (await readFile(full)).toString("base64");
+      } catch {
+        return { error: `cannot read ${path}`, hint: "Check the file exists - use run_bash to list it." };
+      }
+      return call({ action: "upload_file", content, filename: filename ?? path.split("/").pop() });
+    },
+  });
+
+  const downloadFile = tool({
+    name: "slack_download_file",
+    description:
+      "Download a file someone attached to THIS thread into your workspace so you can read it. " +
+      "Call slack_read_thread first to find the file id - each message lists the files on it.",
+    inputSchema: z.object({
+      fileId: z.string().describe("File id from slack_read_thread."),
+      path: z.string().describe("Where to write it in your workspace, e.g. in/attachment.csv"),
+    }),
+    callback: async ({ fileId, path }) => {
+      const full = sandboxed(workDir(), path);
+      if (!full) {
+        return { error: "path escapes the workspace", hint: "Use a relative path inside your workspace." };
+      }
+      const res = (await call({ action: "download_file", fileId })) as {
+        content?: string;
+        file?: { name?: string; bytes?: number };
+        error?: string;
+      };
+      if (res.error || typeof res.content !== "string") return res;
+      try {
+        await mkdir(dirname(full), { recursive: true });
+        await writeFile(full, Buffer.from(res.content, "base64"));
+      } catch {
+        return { error: `could not write ${path}`, hint: "Pick a different path in your workspace." };
+      }
+      // Deliberately does NOT return the content: it's on disk now, and echoing it back would put
+      // the whole file in the model's context - the thing writing it to a file avoids.
+      return { ok: true, path, bytes: res.file?.bytes, name: res.file?.name };
+    },
+  });
+
+  return [reply, setStatus, readThread, askUser, uploadFile, downloadFile];
 }
 
 /**
@@ -101,5 +174,10 @@ export const SLACK_PROMPT = [
   "- You are given ONLY the text of the mention. If it refers to anything you can't see -",
   "  \"this\", \"that error\", \"as discussed\" - call `slack_read_thread` before answering rather",
   "  than guessing. It returns the thread oldest-first.",
+  "- If a request is genuinely ambiguous or the call is theirs to make, `slack_ask_user` and stop.",
+  "  Guessing wrong costs them more than being asked. Don't use it to confirm routine steps.",
+  "- Long output belongs in a file: `slack_upload_file` beats pasting a wall of text. They can't",
+  "  see your workspace, so a path means nothing to them. To read an attachment, find its id with",
+  "  `slack_read_thread` and then `slack_download_file`.",
   "- Be brief. A Slack thread is a conversation, not a report.",
 ].join("\n");

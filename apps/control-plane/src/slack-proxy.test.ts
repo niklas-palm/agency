@@ -137,6 +137,84 @@ describe("callSlack", () => {
     });
   });
 
+  it("ask_user posts the question AND sets the waiting status in one call", async () => {
+    // Two tool calls would let the agent ask and forget the status, which reads as a stalled run
+    // rather than one waiting on a person.
+    await callSlack("agent-000000", SESSION, { action: "ask_user", text: "which branch?" });
+    const methods = fetchMock.mock.calls.map(([u]) => String(u).split("/").pop());
+    expect(methods).toContain("chat.postMessage");
+    expect(methods).toContain("reactions.add");
+    const add = fetchMock.mock.calls.find(([u]) => String(u).endsWith("reactions.add"))!;
+    expect(JSON.parse((add[1] as { body: string }).body).name).toBe(SLACK_STATUS_EMOJI.needs_input);
+  });
+
+  it("surfaces file ids from read_thread, since download_file has no other source", async () => {
+    fetchMock.mockResolvedValue({
+      json: async () => ({
+        ok: true,
+        messages: [
+          { user: "U1", text: "see attached", ts: "1.1", files: [{ id: "F123", name: "log.txt", mimetype: "text/plain" }] },
+        ],
+      }),
+      status: 200,
+    });
+    const res = await callSlack("agent-000000", SESSION, { action: "read_thread" });
+    expect(res).toMatchObject({
+      messages: [{ files: [{ id: "F123", name: "log.txt", mimetype: "text/plain" }] }],
+    });
+  });
+
+  /**
+   * The security boundary on download_file. `files.info` returns any file the TOKEN can see, so
+   * without the shares check an agent could name a file id from another channel - one it was never
+   * invited to - and read it. The channel allowlist wouldn't help: the read isn't a post.
+   */
+  it("refuses a file that wasn't shared in this thread", async () => {
+    fetchMock.mockResolvedValue({
+      json: async () => ({
+        ok: true,
+        file: { id: "F999", name: "secret.txt", url_private_download: "https://files.slack.com/x",
+                shares: { private: { C0OTHERCHANNEL: [{}] } } },
+      }),
+      status: 200,
+    });
+    const res = await callSlack("agent-000000", SESSION, { action: "download_file", fileId: "F999" });
+    expect(res).toMatchObject({ error: expect.stringContaining("not shared in this thread") });
+    // And it never fetched the bytes.
+    expect(fetchMock.mock.calls.every(([u]) => !String(u).includes("files.slack.com"))).toBe(true);
+  });
+
+  it("allows a file shared in this thread", async () => {
+    fetchMock.mockImplementation(async (url: unknown) => {
+      if (String(url).includes("files.info")) {
+        return {
+          json: async () => ({
+            ok: true,
+            file: { id: "F1", name: "log.txt", url_private_download: "https://files.slack.com/x",
+                    shares: { private: { [CHANNEL]: [{}] } } },
+          }),
+          status: 200,
+        };
+      }
+      return { ok: true, status: 200, arrayBuffer: async () => new TextEncoder().encode("hello").buffer };
+    });
+    const res = await callSlack("agent-000000", SESSION, { action: "download_file", fileId: "F1" });
+    expect(res).toMatchObject({ ok: true, content: Buffer.from("hello").toString("base64") });
+  });
+
+  it("refuses an oversized upload rather than truncating it", async () => {
+    const big = Buffer.alloc(3_000_001).toString("base64");
+    const res = await callSlack("agent-000000", SESSION, { action: "upload_file", content: big, filename: "big.bin" });
+    expect(res).toMatchObject({ error: expect.stringContaining("too large") });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("requires a fileId for download_file", async () => {
+    expect(await callSlack("agent-000000", SESSION, { action: "download_file" })).toMatchObject({
+      hint: expect.stringContaining("read_thread"),
+    });
+  });
+
   it("refuses to act on a non-Slack session", async () => {
     const res = await callSlack("agent-000000", "abcdefghijklmnopqrstuvwxyz0123456", {
       action: "reply",

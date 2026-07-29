@@ -327,10 +327,12 @@ before we know the signing secret), so `isUrlVerification` refuses any body that
 therefore rides the URL **path**, which is also why a forged path can't pick another agent's
 secret. **One thread = one session** (`slack-<channel>-<threadTs>`), so a follow-up mention is
 **injected into the running turn** - the load-bearing feature made visible. The agent never
-holds the bot token: `slack_reply`/`slack_set_status` are wired only when the payload carries
-`fromSlack`, and the control-plane derives the reply target from the session token, so there's
+holds the bot token: six tools (`slack_reply`/`slack_set_status`/`slack_read_thread`/`slack_ask_user`/
+`slack_upload_file`/`slack_download_file`) are wired only when the payload carries `fromSlack`, and the control-plane derives the reply target from the session token, so there's
 no channel argument to poison. The webhook adds 👀 on receipt (before the run), and the four status
-reactions (🟡 working → 🟢 done / 🔴 failed / ❓ needs_input) are mutually exclusive. The channel allowlist is a security control (anyone who can
+reactions (🟡 working → 🟢 done / 🔴 failed / ❓ needs_input) are mutually exclusive. It all works in
+ISOLATED mode too - the agent reaches the proxy over PrivateLink and the control-plane makes the
+outbound Slack call, so no egress exception is needed. The channel allowlist is a security control (anyone who can
 `/invite` the bot can direct the agent); empty means answer nowhere, and the opt-in
 `allChannels` deliberately delegates the gate to whoever can `/invite`. See docs/triggers.md.
 
