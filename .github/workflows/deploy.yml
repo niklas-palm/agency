@@ -47,13 +47,10 @@ env:
   # the workflow reusable by a fork or a second deployment without editing it.
   # Set it once:  gh variable set AWS_DEPLOY_ROLE_ARN --body arn:aws:iam::<acct>:role/agency-github-deploy
   ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
-  # The optional custom domain, repo variables for the same reason (a domain name and a
-  # hosted zone id are this deployment's identifiers - a fork inheriting them would request a
-  # certificate for a domain it doesn't control). So the deployer's own infra/cdk.context.json
-  # is the single source of truth, and this variable holds a copy of that FILE for CI, which
-  # cannot read a gitignored path. One schema, one place to edit per environment.
-  #   gh variable set AGENCY_CDK_CONTEXT --body "$(cat infra/cdk.context.json)"
-  AGENCY_CDK_CONTEXT: ${{ vars.AGENCY_CDK_CONTEXT }}
+  # Per-deployment config (custom domain, sampleApi) lives in the TRACKED
+  # infra/cdk.context.json, which CDK reads automatically - so there is no context wiring here
+  # and no second source to keep in sync. A fork edits that file; see docs/deployment.md.
+
 
 jobs:
   # Same gate as CI, re-run here: main can receive a direct push, and deploying code that
@@ -215,22 +212,9 @@ jobs:
       - name: Assert the bundle was built against the real API
         if: steps.out.outputs.web_client_id != '' && steps.out.outputs.api_url != ''
         run: bash .github/scripts/assert-bundle.sh '${{ steps.out.outputs.api_url }}'
-      # CDK reads infra/cdk.context.json automatically, but it's gitignored (it holds this
-      # deployment's own identifiers), so CI materializes it from the variable. Writing the file
-      # rather than passing -c flags means CI and a local deploy consume the SAME schema - there
-      # is no second code path that could disagree about a key.
-      - name: Write the CDK context
-        run: |
-          set -euo pipefail
-          if [ -n "${AGENCY_CDK_CONTEXT:-}" ]; then
-            printf '%s' "$AGENCY_CDK_CONTEXT" > infra/cdk.context.json
-            # Fail loudly on malformed JSON: a truncated paste would otherwise deploy the
-            # defaults, which for an existing deployment means tearing the domain down.
-            python3 -c "import json,sys; json.load(open('infra/cdk.context.json'))"
-            echo "wrote infra/cdk.context.json ($(wc -c < infra/cdk.context.json) bytes)"
-          else
-            echo "no AGENCY_CDK_CONTEXT set - deploying with cdk.json defaults"
-          fi
+      # infra/cdk.context.json is TRACKED and CDK reads it automatically, so there is nothing
+      # to materialize here - CI and a local deploy read the identical file. Fork instructions
+      # are in docs/deployment.md; the values in it must be changed to your own.
       - name: cdk deploy --all
         working-directory: infra
         run: npx cdk deploy --all --require-approval never --concurrency 4

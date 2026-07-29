@@ -107,10 +107,11 @@ Don't include:
 - **Internal or employer-specific references.** No internal tool names, codenames, ticket
   ids, wiki links or internal hostnames. State the constraint, drop the source.
 - **Live deployment identifiers or credentials.** No AWS account ids, ARNs, API Gateway ids,
-  CloudFront domains, Cognito ids or bucket names in tracked files. Real values live in
-  gitignored config (`infra/cdk.context.json`) or come from stack outputs at deploy time.
-  Fixtures must be obviously synthetic - `agpat_test_token_000000`, `example.com`,
-  `000000000000`.
+  CloudFront domains, Cognito ids or bucket names in tracked files - those come from stack
+  outputs at deploy time. Fixtures must be obviously synthetic - `agpat_test_token_000000`,
+  `example.com`, `000000000000`. The one exception is `infra/cdk.context.json`, which is tracked
+  and holds this deployment's domain + hosted-zone id: neither is a credential, and a sample is
+  easier to deploy when there is one file to edit. Don't extend it further.
 - **Speculation about unfixed weaknesses.** Accepted trade-offs belong in
   [SECURITY.md](SECURITY.md), stated deliberately with their mitigations. A "this is probably
   exploitable if you…" aside in a commit message is a free tip for an attacker. Found

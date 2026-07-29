@@ -232,10 +232,16 @@ published. Before committing, check you are not including:
     `authType:NONE` Function URL", not the tool's name).
 20. **Live deployment identifiers and credentials.** Never commit an AWS account id, ARN,
     API Gateway id, CloudFront domain, Cognito pool/client id, bucket name, or anything
-    credential-shaped. Real values belong in gitignored files (`infra/cdk.context.json`) or
-    stack outputs, resolved at deploy time - never in tracked config, docs or examples.
-    Test fixtures must be *obviously* synthetic: `agpat_test_token_000000`,
-    `example.com`, `000000000000`.
+    credential-shaped. Those are resolved from stack outputs at deploy time, never written into
+    tracked config, docs or examples. Test fixtures must be *obviously* synthetic:
+    `agpat_test_token_000000`, `example.com`, `000000000000`.
+
+    **The deliberate exception is `infra/cdk.context.json`**, which IS tracked and carries this
+    deployment's `domainName` + `hostedZoneId`. Neither is a credential - a domain is public DNS
+    and a zone id is useless without account access - and this is a public *sample*, where one
+    file a deployer edits beats a mechanism they have to discover. It ships with a comment saying
+    to change or delete them, and the no-domain path (delete both) is the documented default. Do
+    NOT extend this exception to anything credential-shaped.
 21. **Speculation about unfixed weaknesses, outside SECURITY.md.** A published weakness
     inventory is a roadmap for an attacker. Accepted trade-offs go in SECURITY.md,
     deliberately and with their mitigations; a stray "this is probably exploitable if you

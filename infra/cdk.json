@@ -2,8 +2,9 @@
   "app": "npx tsx bin/agency.ts",
   "context": {
     "@aws-cdk/core:newStyleStackSynthesis": true,
-    "//webCallbackUrl": "REQUIRED for a real deploy unless domainName is set: your web app origin. It is the sign-in link in the Cognito invite email, so a wrong value emails your users someone else's app. Set it in infra/cdk.context.json (gitignored) or pass -c webCallbackUrl=https://your-app/ . Unset = the site domain when domainName is set, else localhost, which only makes sense for local dev.",
-    "//domainName": "OPTIONAL custom domain, e.g. agency.example.com: the SPA is served on it and the API on api.<domainName>. Set it WITH hostedZoneId (both or neither) in infra/cdk.context.json (gitignored) or with -c. Unset = the CloudFront + execute-api hostnames. CI reads the same pair from repo variables - see docs/deployment.md.",
-    "//hostedZoneId": "The PUBLIC Route53 hosted zone for domainName. It must already exist AND be delegated (the parent zone's NS records point at it), because the certificates are DNS-validated in it - an undelegated zone leaves CloudFormation waiting on validation instead of failing fast."
+    "//webCallbackUrl": "OPTIONAL: your web app origin, used as the sign-in link in Cognito invite emails. Unset AND no domainName = a localhost link, which only makes sense for local dev. When domainName is set it supplies this automatically, so you rarely need both.",
+    "//domainName": "OPTIONAL custom domain, e.g. agency.example.com: the SPA serves on it and the API on api.<domainName>. DELETE THIS KEY (and hostedZoneId) to serve on the CloudFront + execute-api hostnames instead - that needs no DNS setup and is the right choice for a trial deployment. Set it WITH hostedZoneId: both or neither, and a half-set pair is refused at synth rather than deploying half a domain.",
+    "//hostedZoneId": "The PUBLIC Route53 hosted zone for domainName, REQUIRED whenever domainName is set. It must already exist AND be delegated (the parent zone's NS records point at it), because both certificates are DNS-validated in it - an undelegated zone leaves CloudFormation waiting on validation for hours rather than failing fast. Adding a domain also adds the AgencyWebCert stack in us-east-1, so bootstrap that region too.",
+    "//sampleApi": "OPTIONAL: set \"true\" to deploy AgencySampleApi, a small removable pet-store API used as the target for the integrations E2E. Its own stack, so deleting it later touches nothing else. Omit or \"false\" and `cdk deploy --all` leaves it out."
   }
 }

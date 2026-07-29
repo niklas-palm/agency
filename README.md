@@ -104,27 +104,43 @@ opt-in sample API), and the web bundle must
 be built with the API and Cognito ids baked in **before** `cdk deploy` (Vite inlines them at
 build time, so a missing `VITE_API_URL` produces an SPA pointed at the wrong origin).
 
+**The one edit to make first.** `infra/cdk.context.json` is checked in and carries this
+deployment's own values. For the shortest path to something working, delete two lines:
+
+```jsonc
+// infra/cdk.context.json - delete these two and you need no DNS at all
+"domainName": "agency.nipalm.com",
+"hostedZoneId": "Z0..."
+```
+
+The SPA then serves on the CloudFront hostname and the API on the API Gateway one. No
+certificates, no Route53, no us-east-1 bootstrap, one fewer stack - and every feature
+(agents, Slack, integrations, sign-in) behaves identically. Add your own domain later by
+putting both keys back with your values; nothing else changes.
+
 **Things a first-time deployer will hit.** These are real and mostly undocumented elsewhere:
 
-- **`cdk bootstrap` is needed in two regions** - `eu-north-1` and `us-east-1` (the web-search
-  gateway stack lives there because that connector is us-east-1 only - and so does the
-  CloudFront certificate stack, if you configure a custom domain).
+- **`cdk bootstrap` is needed in two regions** - `eu-north-1` and `us-east-1`. The web-search
+  gateway stack lives in us-east-1 because that connector is us-east-1 only, and so does the
+  CloudFront certificate stack if you configure a custom domain.
 - **Bedrock AgentCore must be available and enabled in your account.** The runtime and the
   web-search gateway are L1 CloudFormation constructs over a young service; region and API
   availability are outside this project's control.
 - **Model ids are pinned** in `packages/shared/src/models.ts` and are account/region
   specific. Expect to edit them. Anthropic ids rotate, and the `eu.`/`us.`/`global.` profile
   prefixes are region-coupled.
-- **Set `webCallbackUrl` - or a custom domain, which supplies it.** It is the sign-in link in
-  the Cognito invite email, so with neither set your users get a `localhost` link. The repo
-  ships no default (that would point at someone else's app); put yours in
-  `infra/cdk.context.json` or pass `-c webCallbackUrl=https://your-app/`. The synth warns
-  only if BOTH it and `domainName` are missing.
-- **A custom domain is optional.** Set `domainName` + `hostedZoneId` together and the SPA
-  serves on your domain with the API at `api.<domain>`; that also adds the `AgencyWebCert`
-  stack in us-east-1. Leave both unset to serve on the CloudFront and execute-api hostnames.
-  Details, including the delegation prerequisite, in
+- **Edit `infra/cdk.context.json` first - it's checked in and holds THIS deployment's values.**
+  The quickest working deploy is to **delete the `domainName` and `hostedZoneId` lines**: the SPA
+  then serves on the CloudFront hostname and the API on the API Gateway one, with no DNS,
+  certificates or us-east-1 bootstrap needed. Everything else works identically. To use your own
+  domain, replace both values instead (the zone must exist and be delegated). Left as shipped,
+  the deploy requests a certificate for a domain you don't control and stalls. Every key is
+  documented in place in `infra/cdk.json`; the full table is in
   [docs/deployment.md](docs/deployment.md).
+- **Set `webCallbackUrl` - or a custom domain, which supplies it.** It is the sign-in link in
+  the Cognito invite email, so with neither set your users get a `localhost` link. Put yours
+  in `infra/cdk.context.json` or pass `-c webCallbackUrl=https://your-app/`. The synth warns
+  only if BOTH it and `domainName` are missing.
 - **The Cognito domain prefix is globally unique per region.** It defaults to
   `agency-auth`, so a second deployment in the same region needs
   `-c cognitoDomainPrefix=your-prefix` or the auth stack fails.

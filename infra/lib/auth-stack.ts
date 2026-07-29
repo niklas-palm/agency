@@ -39,7 +39,7 @@ export class AuthStack extends Stack {
     // email, so a wrong value mails your users at someone else's app - which is why the
     // repo ships no default. With a custom domain configured the SPA's origin IS that
     // link, so it's derived from `domainName` and needs no second setting; otherwise set
-    // it in infra/cdk.context.json (gitignored) or with `-c webCallbackUrl=…`. Falling
+    // it in infra/cdk.context.json or with `-c webCallbackUrl=…`. Falling
     // back to localhost is only sane for local dev, so say so loudly rather than
     // shipping broken invite emails.
     // Globally unique per region, so a second deployment in the same region needs its

@@ -177,7 +177,7 @@ the backend, and the next run publishes the SPA. Same two-phase shape as a manua
 ## Context you must set
 
 CDK context carries the per-deployment values the repo can't ship a default for. Put them in
-`infra/cdk.context.json` (gitignored) or pass `-c key=value`; `infra/cdk.json` holds a
+`infra/cdk.context.json` (tracked - see above) or pass `-c key=value`; `infra/cdk.json` holds a
 `//`-prefixed placeholder documenting each one.
 
 | Key | Required? | What happens if unset |
@@ -225,33 +225,62 @@ What the deployment does with it:
 - The Cognito invite email's sign-in link defaults to `https://<domainName>/`, so
   `webCallbackUrl` becomes unnecessary (set it only to override).
 
-**`infra/cdk.context.json` is the single source of truth.** It's gitignored, because the values in
-it are *your* deployment's identifiers - a fork that inherited a domain name and hosted-zone id
-would request an ACM certificate for a domain it doesn't control and hang on DNS validation for
-hours. It can't be committed for a practical reason rather than a secrecy one: the domain name is public
-DNS and the zone id isn't a credential, but a fork that inherited them would request a certificate
-for a domain it doesn't control and try to validate it in someone else's hosted zone - an IAM
-denial, or a CloudFormation hang that times out hours later with nothing useful in the error.
+**`infra/cdk.context.json` is the single source of truth, and it is checked in.** CDK reads it
+automatically, so a local `cdk deploy` and CI use the identical file - no context wiring in the
+workflow, nothing to keep in sync.
 
-There's no template file to copy: `infra/cdk.json` already documents every key in place, as
-`//`-prefixed entries. Create `infra/cdk.context.json` with the keys you need - all optional -
-and CDK picks it up automatically:
+### Deploying your own copy
+
+The file ships with **this** deployment's values, not defaults. Two lines decide everything:
 
 ```json
-{ "domainName": "agency.example.com", "hostedZoneId": "Z0000000000000EXAMPLE" }
+"domainName": "agency.nipalm.com",
+"hostedZoneId": "Z0..."
 ```
 
-**CI materializes the same file** from one repo variable, because it can't read a gitignored path:
+**Option A - no custom domain (recommended for a first deploy).** Delete both lines. You get:
 
-```bash
-gh variable set AGENCY_CDK_CONTEXT --body "$(cat infra/cdk.context.json)"
-```
+| | Serves on |
+|---|---|
+| SPA | the CloudFront hostname (`d….cloudfront.net`) |
+| API | the API Gateway hostname (`….execute-api.<region>.amazonaws.com`) |
 
-The workflow writes it back to `infra/cdk.context.json` before deploying and fails on malformed
-JSON (a truncated paste would otherwise deploy the defaults - which, for a deployment that already
-has a domain, means tearing it down). Writing the file rather than passing `-c` flags is
-deliberate: CI and a local deploy then consume the *same schema*, so there is no second code path
-that could disagree about a key. Re-run that command whenever you change the file.
+No DNS, no certificates, no Route53, no us-east-1 bootstrap, and one fewer stack
+(`AgencyWebCert` isn't synthesized). Everything else - agents, Slack, integrations, the SPA's
+sign-in - works identically; the only difference is the hostnames. This path is verified: with
+both keys absent the app synthesizes **zero** certificates and **zero** Route53 records, and the
+`ApiUrl`/`SiteUrl` outputs resolve to the AWS-provided hostnames.
+
+**Option B - your own domain.** Replace both values. `hostedZoneId` must be a **public** Route53
+zone that already exists and is **delegated** (the parent zone's NS records point at it), because
+both certificates are DNS-validated in it. An undelegated zone doesn't fail fast: CloudFormation
+waits on validation for hours and then times out. Also `cdk bootstrap` us-east-1, since the
+CloudFront certificate stack lives there.
+
+**What happens if you deploy without changing them:** CDK requests an ACM certificate for a domain
+you don't control and tries to write validation records into a hosted zone in someone else's
+account - an IAM denial, or a CloudFormation hang. Nothing is damaged, but the deploy won't
+complete. Delete the two lines and re-run.
+
+**A half-set pair is refused at synth**, with a message naming what's missing - so deleting only
+one line fails immediately rather than deploying half a domain. Empty strings (`""`) are treated
+as unset, which is what a careless edit usually produces.
+
+The no-domain path is pinned by `infra/lib/no-domain-path.test.ts`: with both keys absent it
+asserts zero certificates, zero Route53 records, no API domain mapping, and `ApiUrl`/`SiteUrl`
+outputs that still resolve to the AWS-provided hostnames. It's the path we'd otherwise never
+notice breaking, because our own deploys always have a domain.
+
+### `sampleApi`
+
+`"false"` by default, so a clone doesn't deploy a demo it didn't ask for. Set `"true"` to add
+`AgencySampleApi` - a small pet-store API that exists only as the target for the integrations
+E2E (`RUN_INTEGRATION=1`); locally the same role is played by the `sample-api` docker-compose
+service, so the stack matters only for AWS runs.
+
+Note that flipping it back to `"false"` does **not** remove an already-deployed sample API:
+`cdk deploy --all` only deploys the stacks it synthesizes and never deletes ones it no longer
+knows about, so the stack keeps running, unmanaged, until `cdk destroy AgencySampleApi`.
 
 **CI needs the same pair as repo variables**, because CDK context is not tracked - a deploy from
 CI without them would remove the domain a local deploy had configured:

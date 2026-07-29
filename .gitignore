@@ -8,10 +8,6 @@ infra/cdk.out/
 .env.local
 .env.*.local
 .DS_Store
-# Local CDK context: holds THIS deployment's webCallbackUrl (the invite email's
-# sign-in link). Deliberately untracked - a checked-in value points every other
-# deployer's invite emails at our app. See infra/cdk.json.
-infra/cdk.context.json
 
 # Design docs + the pre-public checklist: kept LOCAL, deliberately. They describe
 # unbuilt work, prior-project references, and the pre-publication findings - none of
