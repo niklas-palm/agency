@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Create (or update) the IAM role GitHub Actions assumes to deploy this project.
+# Create (or update) the IAM role(s) GitHub Actions assumes for this project.
 #
 # Run ONCE, by hand, with admin credentials. It can't be CDK: the role can't deploy itself
 # (nothing can assume it until it exists), and the GitHub OIDC provider is account-global
@@ -7,6 +7,7 @@
 # create a duplicate, and `cdk destroy` would delete one other roles depend on.
 #
 #   bash .github/scripts/setup-oidc-role.sh niklas-palm/agency
+#   PREVIEWS=1 bash .github/scripts/setup-oidc-role.sh niklas-palm/agency   # + the preview role
 #
 # THE SUBJECT FORMAT IS THE WHOLE TRICK. The `sub` claim is documented as
 # `repo:<owner>/<name>:ref:refs/heads/main`, but some GitHub accounts emit immutable
@@ -101,3 +102,63 @@ aws iam put-role-policy --role-name "$ROLE" --policy-name agency-deploy --policy
 
 echo "▸ done. Set ROLE_ARN in .github/workflows/deploy.yml to:"
 echo "    arn:aws:iam::${ACCOUNT}:role/${ROLE}"
+
+# ── The PREVIEW role ───────────────────────────────────────────────────────────────────
+#
+# PR previews (.github/workflows/preview.yml) run on `pull_request`, i.e. on code nobody has
+# reviewed yet, so they get a role of their own rather than a wider trust policy on the one
+# above. This one cannot assume the CDK bootstrap roles, so no PR can deploy infrastructure;
+# it can write objects under the previews bucket and invalidate the previews distribution,
+# and that is all. Trusted for ONE subject: the `preview` GitHub environment.
+#
+# Skipped unless previews are wanted: PREVIEWS=1 bash .github/scripts/setup-oidc-role.sh <owner/repo>
+if [ "${PREVIEWS:-0}" != "1" ]; then
+  echo "▸ skipping the preview role (PREVIEWS=1 to create it - see docs/deployment.md)"
+  exit 0
+fi
+
+PREVIEW_ROLE="${PREVIEW_ROLE:-agency-github-preview}"
+
+PREVIEW_TRUST=$(python3 - "$PROVIDER" "$ISSUER" "$IDS" <<'PY'
+import json, sys
+provider, issuer, ids = sys.argv[1], sys.argv[2], sys.argv[3]
+print(json.dumps({"Version": "2012-10-17", "Statement": [{
+    "Sid": "PreviewEnvironment", "Effect": "Allow",
+    "Principal": {"Federated": provider},
+    "Action": "sts:AssumeRoleWithWebIdentity",
+    "Condition": {"StringEquals": {f"{issuer}:aud": "sts.amazonaws.com",
+                                   f"{issuer}:sub": f"repo:{ids}:environment:preview"}}}]}))
+PY
+)
+
+# The bucket ARN is matched by PREFIX, the way the site bucket is above: CDK names the bucket
+# `agencywebpreview-previewbucket<hash>`, which isn't known until the stack is deployed.
+PREVIEW_PERMS=$(python3 <<'PY'
+import json
+bucket = "arn:aws:s3:::agencywebpreview-previewbucket*"
+print(json.dumps({"Version": "2012-10-17", "Statement": [
+  {"Sid": "ReadStackOutputs", "Effect": "Allow", "Action": ["cloudformation:DescribeStacks"], "Resource": "*"},
+  {"Sid": "WritePreviewBucket", "Effect": "Allow",
+   "Action": ["s3:ListBucket", "s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:GetBucketLocation"],
+   "Resource": [bucket, bucket + "/*"]},
+  # CreateInvalidation has no resource-level condition worth relying on here; the role holds
+  # no other CloudFront permission, so the blast radius is "can invalidate a distribution".
+  {"Sid": "InvalidatePreviewCdn", "Effect": "Allow",
+   "Action": ["cloudfront:CreateInvalidation", "cloudfront:GetInvalidation"], "Resource": "*"},
+]}))
+PY
+)
+
+if aws iam get-role --role-name "$PREVIEW_ROLE" >/dev/null 2>&1; then
+  echo "▸ updating ${PREVIEW_ROLE}'s trust policy (${REPO}: the preview environment only)"
+  aws iam update-assume-role-policy --role-name "$PREVIEW_ROLE" --policy-document "$PREVIEW_TRUST"
+else
+  echo "▸ creating ${PREVIEW_ROLE} (${REPO}: the preview environment only)"
+  aws iam create-role --role-name "$PREVIEW_ROLE" --assume-role-policy-document "$PREVIEW_TRUST" \
+    --description "GitHub Actions OIDC role for ${REPO} PR previews (no infra deploy)" >/dev/null
+fi
+aws iam put-role-policy --role-name "$PREVIEW_ROLE" --policy-name agency-preview --policy-document "$PREVIEW_PERMS"
+
+echo "▸ done. Then:"
+echo "    gh variable set AWS_PREVIEW_ROLE_ARN --body arn:aws:iam::${ACCOUNT}:role/${PREVIEW_ROLE}"
+echo "    create the 'preview' GitHub environment (Settings → Environments)"

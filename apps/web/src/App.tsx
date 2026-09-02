@@ -43,7 +43,40 @@ function useHashRoute(): string {
   return hash;
 }
 
+/**
+ * Set only by the PR-preview build (see .github/workflows/preview.yml). A preview is served
+ * from `<pr>.<domain>` but talks to the REAL API and user pool, so it has to be impossible
+ * to mistake for production - hence a permanent marker rather than a dismissible banner.
+ */
+const PREVIEW_LABEL = import.meta.env.VITE_PREVIEW_LABEL;
+
 export function App() {
+  return (
+    <>
+      <PreviewBadge />
+      <AppRoutes />
+    </>
+  );
+}
+
+/** "Preview · PR #123", pinned bottom-right. Absent from every production build. */
+function PreviewBadge() {
+  if (!PREVIEW_LABEL) return null;
+  return (
+    <div
+      // Deliberately styled from `ink`/`canvas` only - the two tokens every palette has,
+      // whichever way round - so this chip can't stop rendering because a color was renamed.
+      // pointer-events-none so it can never sit on top of a control the reviewer is trying
+      // to click: it's a label, not a UI.
+      className="pointer-events-none fixed bottom-3 right-3 z-50 rounded-full bg-ink px-3 py-1 font-mono text-[11px] font-semibold text-canvas shadow-card"
+      role="status"
+    >
+      Preview · {PREVIEW_LABEL} · live data
+    </div>
+  );
+}
+
+function AppRoutes() {
   const route = useHashRoute();
   const [ready, setReady] = useState(false);
   const [signedIn, setSignedIn] = useState(false);

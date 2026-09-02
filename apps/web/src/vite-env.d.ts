@@ -13,6 +13,12 @@ interface ImportMetaEnv {
   readonly VITE_COGNITO_USER_POOL_ID?: string;
   /** Cognito web app-client id. */
   readonly VITE_COGNITO_CLIENT_ID?: string;
+  /**
+   * Set ONLY by the PR-preview build (e.g. "PR #123"). Its presence is what makes the
+   * console show the preview chip - a preview runs against the REAL API, so it must never
+   * be mistakable for production. Never set for a production build.
+   */
+  readonly VITE_PREVIEW_LABEL?: string;
 }
 
 interface ImportMeta {

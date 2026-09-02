@@ -35,7 +35,9 @@ infra                CDK: AgencyAuth (Cognito), AgencyData (DynamoDB),
                      reaches cross-region), AgencyWeb (S3 + CloudFront),
                      AgencyWebCert (the us-east-1 CloudFront certificate - only with a
                      custom domain configured, see docs/deployment.md),
-                     AgencySampleApi (removable demo API - opt-in, `-c sampleApi=true`).
+                     AgencySampleApi (removable demo API - opt-in, `-c sampleApi=true`),
+                     AgencyWebPreview (PR previews at `<pr>.<domain>` - opt-in,
+                     `-c previews=true`, needs a domain; see docs/deployment.md).
 ```
 
 ## Request lifecycle
