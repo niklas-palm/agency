@@ -37,7 +37,7 @@ export function Landing() {
           <h1 className="mt-4 font-display text-[2.9rem] font-bold leading-[1.03] tracking-[-0.035em] text-ink rise sm:text-[3.75rem]">
             Configure an agent.
             <br className="hidden sm:block" /> Call it over HTTP.
-            <br className="hidden sm:block" /> <span className="text-amber-deep">Watch it work.</span>
+            <br className="hidden sm:block" /> <span className="text-accent-ink">Watch it work.</span>
           </h1>
           <p className="mt-6 max-w-xl text-lg leading-relaxed text-muted rise">
             An agent here is just a system prompt, a model, and the tools you hand it — stored as
@@ -136,7 +136,7 @@ export function Landing() {
 function Beat({ n, title, body }: { n: string; title: string; body: string }) {
   return (
     <div className="bg-canvas p-7">
-      <span className="font-mono text-xs font-medium text-amber-deep">{n}</span>
+      <span className="font-mono text-xs font-medium text-accent-ink">{n}</span>
       <h3 className="mt-3 font-display text-lg font-bold tracking-[-0.01em] text-ink">{title}</h3>
       <p className="mt-2 text-sm leading-relaxed text-muted">{body}</p>
     </div>
@@ -148,7 +148,7 @@ function Beat({ n, title, body }: { n: string; title: string; body: string }) {
 function Wire({ label, lines }: { label: string; lines: [kind: "req" | "res", text: string][] }) {
   return (
     <div className="bg-canvas p-6">
-      <span className="label text-amber-deep">{label}</span>
+      <span className="label text-accent-ink">{label}</span>
       <pre className="mt-3 overflow-x-auto font-mono text-[12.5px] leading-relaxed">
         {lines.map(([kind, text], i) => (
           <div key={i} className={kind === "req" ? "text-ink" : "text-muted"}>

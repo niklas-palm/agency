@@ -62,7 +62,7 @@ export function Docs() {
         rel="noreferrer"
         className="focus-ring group flex items-center gap-3.5 rounded-xl border border-line bg-surface p-4 transition-colors hover:bg-raised"
       >
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-fill text-amber-deep">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-fill text-accent-ink">
           <Bot className="h-4 w-4" />
         </span>
         <div className="min-w-0 flex-1">
@@ -120,7 +120,7 @@ function ConceptCard({ icon: Icon, title, body }: Concept) {
   return (
     <div className="card p-4">
       <div className="flex items-center gap-2.5">
-        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-fill text-amber-deep">
+        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-fill text-accent-ink">
           <Icon className="h-4 w-4" />
         </span>
         <h3 className="text-sm font-semibold text-ink">{title}</h3>

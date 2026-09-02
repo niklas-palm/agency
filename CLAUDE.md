@@ -23,7 +23,9 @@ apps/agent-runtime   Strands agent on AgentCore. A shared runtime backs every ag
 apps/sample-api      A tiny pet-store Hono API - a REMOVABLE demo/E2E target for integrations
                      (its own CDK stack; the sample-api docker-compose service locally).
 apps/web             React + Vite SPA (Tailwind "Studio" editorial design - warm cream/marigold/pine,
-                     Hanken Grotesk + Fraunces eyebrow + IBM Plex Mono, a compass mark). Signed-out
+                     Hanken Grotesk + Fraunces eyebrow + IBM Plex Mono, a compass mark). Every
+                     color is a palette TOKEN read from a CSS variable, so a theme is ~20
+                     variables (see "Themes" below). Signed-out
                      visitors see a landing page (no auto-redirect) + can read the public Docs page;
                      sign-in is our own in-app SRP login form (amazon-cognito-identity-js - no
                      hosted-UI redirect; the password never leaves the browser). Admin-created
@@ -33,7 +35,8 @@ apps/web             React + Vite SPA (Tailwind "Studio" editorial design - warm
                      finished run's trajectory - / Run/Configure/Versions/Integrate tabs) + Skills + Integrations
                      pages + a Docs guide page (how-it-works cards + TS/Python recipes; links to
                      the public GET /openapi.json spec and downloads the GET /skill.md coding-agent
-                     skill) + a Settings page (Personal Access Tokens for programmatic access).
+                     skill) + a Settings page (Personal Access Tokens for programmatic access,
+                     + the theme picker).
                      A top-bar org switcher selects the active org (X-Agency-Org header) + a
                      Members page (roles + invites); controls are role-gated (viewer = read-only - a read-only
                      form renders DISABLED with a line saying why, not merely un-savable),
@@ -346,6 +349,31 @@ trajectory TTL. None of the groups is declared by CDK - Lambda and AgentCore cre
 so retention is set on the existing group by name via `logs.LogRetention`; a new Lambda needs
 an `expireFunctionLogs(fn)` call and `log-retention.test.ts` fails without it. See
 docs/deployment.md (which group holds what) + docs/local-dev.md (the debug flag).
+
+## Themes
+
+The console ships three themes: **Agency** (the default Studio palette), **Catppuccin**
+(Mocha) and **Gruvbox** (dark medium). A theme is **color only** - type, spacing and layout
+are identical in all three - and it is one flat palette of ~20 semantic tokens
+(`canvas`/`surface`/`ink`/`accent`/`live`/`warn`/`danger`/`on-accent`/…) defined as CSS
+variables in `apps/web/src/styles.css`: `:root` is the default, `[data-theme="…"]` overrides
+it. So switching is one attribute write on `<html>` and adding a theme is one CSS block plus
+one entry in `THEMES` (`theme.ts`).
+
+The rule that keeps it working: **nothing outside `styles.css` names a color.**
+`tailwind.config.js` maps every Tailwind color onto a token (hence `accent`, not `amber` -
+Catppuccin's accent is mauve), and `theme.ts`'s `TINT`/`tintAlpha` do the same for the places
+that need a color as a JS string. One exception, and it's why `useTint()` exists: Recharts
+sets `stroke`/`fill`/`stopColor` as SVG **presentation attributes**, where `var()` is not
+substituted, so the charts read resolved values instead. The two guest palettes are the
+upstream ones unmodified (catppuccin/palette, morhetz/gruvbox) - a hand-mixed
+"nearly Gruvbox" would be worse than not shipping it.
+
+The choice is per-browser (localStorage, `agency.theme`), not per-account: no endpoint, no
+stored record, nothing to load before the first paint. `index.html` applies the saved key in
+a tiny inline script so a dark theme doesn't flash the cream default. `theme.test.ts` fails if
+a palette block is missing a token - a partial theme silently inherits the default's value,
+which in a dark theme means near-black text on a near-black card.
 
 ## The Slack trigger
 

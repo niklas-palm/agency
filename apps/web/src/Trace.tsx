@@ -82,7 +82,7 @@ export function Trace({
 
       {events.length === 0 && (
         <p className="mt-4 flex items-center gap-2 font-mono text-xs text-muted">
-          {working && <span className="h-1.5 w-1.5 rounded-full bg-amber live-dot" />}
+          {working && <span className="h-1.5 w-1.5 rounded-full bg-accent live-dot" />}
           {dispatching
             ? "Starting the agent. A new agent can take a minute or two to spin up the first time…"
             : working
@@ -96,9 +96,9 @@ export function Trace({
           <StepRow key={step.event.cursor} step={step} index={i} t0={t0} />
         ))}
         {working && events.length > 0 && (
-          <li className="flex items-center gap-3 py-2 font-mono text-xs text-pine-deep">
+          <li className="flex items-center gap-3 py-2 font-mono text-xs text-live-ink">
             <span className="w-[46px] shrink-0 text-right tabular-nums">·</span>
-            <span className="h-2 w-2 shrink-0 rounded-full bg-pine live-dot" />
+            <span className="h-2 w-2 shrink-0 rounded-full bg-live live-dot" />
             <span>running…</span>
           </li>
         )}

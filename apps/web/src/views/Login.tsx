@@ -130,7 +130,7 @@ export function Login({ onSignedIn }: { onSignedIn: () => void }) {
                 <button type="submit" className="btn w-full" disabled={busy || !email.trim() || !password}>
                   {busy ? "Signing in…" : "Sign in"}
                 </button>
-                <button type="button" disabled={busy} onClick={() => reset("forgot")} className="focus-ring w-full rounded-md text-center text-xs text-amber-deep hover:underline disabled:opacity-50">
+                <button type="button" disabled={busy} onClick={() => reset("forgot")} className="focus-ring w-full rounded-md text-center text-xs text-accent-ink hover:underline disabled:opacity-50">
                   Forgot your password?
                 </button>
               </form>
@@ -190,7 +190,7 @@ export function Login({ onSignedIn }: { onSignedIn: () => void }) {
                 {/* Once a code's been sent, let the user request a fresh one in place
                     (a code can expire, or never arrive) without leaving the flow. */}
                 {codeSent && (
-                  <button type="button" disabled={busy} onClick={() => void doSendCode()} className="focus-ring w-full rounded-md text-center text-xs text-amber-deep hover:underline disabled:opacity-50">
+                  <button type="button" disabled={busy} onClick={() => void doSendCode()} className="focus-ring w-full rounded-md text-center text-xs text-accent-ink hover:underline disabled:opacity-50">
                     Resend code
                   </button>
                 )}

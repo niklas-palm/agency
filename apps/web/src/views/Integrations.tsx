@@ -176,7 +176,7 @@ function IntegrationRow({
           <span className="chip shrink-0 !px-1.5 !py-0">{ops} {ops === 1 ? "op" : "ops"}</span>
           <span className="chip shrink-0 !px-1.5 !py-0">{used} {used === 1 ? "agent" : "agents"}</span>
           {integration.discovery && (
-            <span className="chip shrink-0 !px-1.5 !py-0 inline-flex items-center gap-1 text-amber-deep" title="Operations auto-discovered from a spec">
+            <span className="chip shrink-0 !px-1.5 !py-0 inline-flex items-center gap-1 text-accent-ink" title="Operations auto-discovered from a spec">
               <Sparkles className="h-3 w-3" />
               discovered
             </span>
@@ -661,11 +661,18 @@ function OperationsEditor({
   );
 }
 
+/**
+ * Method chip colors, from the palette so a theme repaints them: read is the
+ * accent, create the live hue, a mutation warns, a delete is danger. (These used
+ * Tailwind's own `emerald`/`amber` scales, which sat outside the design system -
+ * and the `amber-*` half rendered no color at all, since `amber` is a single
+ * palette color here, not a scale.)
+ */
 const METHOD_COLORS: Record<IntegrationMethod, string> = {
-  GET: "text-amber-deep bg-amber/10",
-  POST: "text-emerald-700 bg-emerald-500/10 dark:text-emerald-400",
-  PUT: "text-amber-700 bg-amber-500/10 dark:text-amber-400",
-  PATCH: "text-amber-700 bg-amber-500/10 dark:text-amber-400",
+  GET: "text-accent-ink bg-accent/10",
+  POST: "text-live-ink bg-live/10",
+  PUT: "text-warn bg-warn/10",
+  PATCH: "text-warn bg-warn/10",
   DELETE: "text-danger-ink bg-danger/10",
 };
 
@@ -816,7 +823,7 @@ function DiscoveryEditor({
                   type="checkbox"
                   checked={op.enabled}
                   onChange={() => toggle(op.operationId)}
-                  className="h-4 w-4 shrink-0 accent-amber"
+                  className="h-4 w-4 shrink-0 accent-accent"
                 />
                 <span
                   className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold ${METHOD_COLORS[op.method]}`}
@@ -858,7 +865,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 function EmptyState({ canCreate, onCreate }: { canCreate: boolean; onCreate: () => void }) {
   return (
     <div className="card flex flex-col items-center gap-4 px-6 py-16 text-center">
-      <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-fill text-amber-deep">
+      <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-fill text-accent-ink">
         <Plug className="h-5 w-5" />
       </span>
       <p className="max-w-xs text-sm leading-relaxed text-muted">

@@ -1,17 +1,19 @@
 /**
- * Settings → Access tokens. Where a user mints Personal Access Tokens for
- * programmatic access (a coding assistant calling the management API on their
+ * Settings → Access tokens + appearance. Where a user mints Personal Access Tokens
+ * for programmatic access (a coding assistant calling the management API on their
  * behalf). Create with a name + chosen scopes; the plaintext is shown ONCE, then
  * only metadata is listable; revoke any token. Mirrors the create-once-reveal-once
- * pattern of the agent API key.
+ * pattern of the agent API key. Also holds the theme picker - a per-browser
+ * preference, so it needs no endpoint.
  */
 import { useEffect, useState } from "react";
 import type { AccessToken, Scope } from "@agency/shared";
 import { SCOPES, DEFAULT_SCOPES, scopesForRole } from "@agency/shared";
-import { Check, Copy, KeyRound, Plus, Trash2 } from "lucide-react";
+import { Check, Copy, KeyRound, Palette, Plus, Trash2 } from "lucide-react";
 import { listAccessTokens, createAccessToken, deleteAccessToken } from "../api.js";
 import { useOrg } from "../OrgContext.js";
 import { ErrorNote, Skeleton, ToggleRow, relativeTime } from "../components.js";
+import { THEMES, THEME_KEYS, tintAlpha, useTheme } from "../theme.js";
 
 export function Settings() {
   const [tokens, setTokens] = useState<AccessToken[] | null>(null);
@@ -80,7 +82,70 @@ export function Settings() {
           </div>
         )}
       </section>
+
+      <Appearance />
     </div>
+  );
+}
+
+/**
+ * Theme picker. Each option renders INSIDE its own palette (`data-theme` scopes the
+ * CSS variables to the card - see styles.css), so an option is its own preview and
+ * no theme's colors have to be restated in TS.
+ */
+function Appearance() {
+  const { theme, setTheme } = useTheme();
+  return (
+    <section className="space-y-3">
+      <div>
+        <h2 className="flex items-center gap-2 text-base font-semibold tracking-tight text-ink">
+          <Palette className="h-4 w-4 text-accent-ink" />
+          Appearance
+        </h2>
+        <p className="mt-0.5 text-xs text-muted">
+          Colors only - type and layout are the same in every theme. Remembered in this
+          browser, not on your account.
+        </p>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-3" role="radiogroup" aria-label="Theme">
+        {THEME_KEYS.map((key) => {
+          const active = key === theme;
+          return (
+            <button
+              key={key}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              data-theme={key}
+              onClick={() => setTheme(key)}
+              className={`focus-ring rounded-xl border bg-canvas p-3.5 text-left transition-colors ${
+                active ? "border-accent" : "border-line hover:border-ink/25"
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-semibold text-ink">{THEMES[key].label}</span>
+                {active && <Check className="h-4 w-4 shrink-0 text-accent-ink" />}
+              </div>
+              <p className="mt-1 text-xs leading-relaxed text-muted">{THEMES[key].blurb}</p>
+              {/* A miniature of the console: a card, two lines of type, the hues. */}
+              <div className="mt-3 rounded-lg border border-line bg-surface p-2.5 shadow-card">
+                <div className="h-1.5 w-14 rounded-full bg-ink" />
+                <div className="mt-1.5 h-1.5 w-20 rounded-full" style={{ backgroundColor: tintAlpha("muted", 0.6) }} />
+                <div className="mt-3 flex items-center gap-1.5">
+                  <span className="h-3 w-3 rounded-full bg-accent" />
+                  <span className="h-3 w-3 rounded-full bg-live" />
+                  <span className="h-3 w-3 rounded-full bg-clay" />
+                  <span className="h-3 w-3 rounded-full bg-danger" />
+                  <span className="ml-auto rounded bg-accent px-1.5 py-0.5 font-mono text-[9px] font-semibold text-on-accent">
+                    Aa
+                  </span>
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -90,10 +155,10 @@ function FreshToken({ token, onDismiss }: { token: string; onDismiss: () => void
   return (
     <div
       className="rounded-xl border p-4"
-      style={{ borderColor: "#21584A33", backgroundColor: "#21584A0d" }}
+      style={{ borderColor: tintAlpha("live", 0.2), backgroundColor: tintAlpha("live", 0.05) }}
     >
       <div className="flex items-center gap-2 text-sm font-semibold text-ink">
-        <Check className="h-4 w-4 text-pine-deep" />
+        <Check className="h-4 w-4 text-live-ink" />
         Token created - copy it now
       </div>
       <p className="mt-1 text-xs text-muted">
@@ -111,7 +176,7 @@ function FreshToken({ token, onDismiss }: { token: string; onDismiss: () => void
             setTimeout(() => setCopied(false), 1500);
           }}
         >
-          {copied ? <Check className="h-4 w-4 text-pine-deep" /> : <Copy className="h-4 w-4" />}
+          {copied ? <Check className="h-4 w-4 text-live-ink" /> : <Copy className="h-4 w-4" />}
         </button>
         <button className="btn-ghost !min-h-0 shrink-0 !px-3 !py-2" onClick={onDismiss}>
           Done
@@ -166,7 +231,7 @@ function CreateToken({
   return (
     <section className="card p-5 sm:p-6">
       <h2 className="flex items-center gap-2 text-base font-semibold tracking-tight text-ink">
-        <KeyRound className="h-4 w-4 text-amber-deep" />
+        <KeyRound className="h-4 w-4 text-accent-ink" />
         New access token
       </h2>
       <div className="mt-4 space-y-5">

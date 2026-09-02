@@ -1,67 +1,50 @@
 /**
  * Shared UI primitives for the Agency "Studio" interface: the compass mark, status
  * pills, stat readouts, model tag/picker, toggles, skeletons, and the run-trace
- * event colors. Warm editorial palette; color always means something.
+ * event colors. Editorial palette from the active theme (`theme.ts`); color always
+ * means something.
  */
 import { useState, type ReactNode } from "react";
 import { ArrowLeft, Check, ChevronDown, Copy, Globe, Lock, ShieldCheck } from "lucide-react";
 import type { ModelFamily, ModelKey, PromptContext, TrajectoryEvent } from "@agency/shared";
 import { MODEL_INFO, MODEL_KEYS, composeSystemPrompt, isModelAllowedInNetworkMode, INTEGRATION_CALL_TOOL } from "@agency/shared";
+import { TINT, tintAlpha } from "./theme.js";
 
 /**
- * Palette as JS values, for dynamic per-datum coloring (trace rails, status
- * dots, vendor marks) Tailwind can't express as static classes. Mirrors
- * tailwind.config.js.
- */
-export const TINT = {
-  canvas: "#FAF8F4",
-  surface: "#FFFDFA",
-  raised: "#F5F1E8",
-  ink: "#1A1714",
-  muted: "#6E655A",
-  faint: "#A79E90",
-  line: "#E6DFD2",
-  fill: "#F1EBDF",
-  // The signature marigold + its AA-safe deep tone.
-  accent: "#E8A33D",
-  accentInk: "#B4741A",
-  // Alive — pine green.
-  live: "#21584A",
-  warn: "#B4741A",
-  danger: "#B23A2E",
-} as const;
-
-/**
- * Per-vendor mark color. `dot` is the small marker; `fill` is the darker tone
- * used behind light text on a selected chip (clears WCAG AA). Kept in the warm
- * family: Anthropic reads as the marigold-adjacent clay, OpenAI as pine.
+ * Per-vendor mark color. `dot` is the small marker; `fill` is the deeper tone used
+ * behind `on-strong` text on a selected chip. Two palette hues rather than two
+ * brand colors, so a theme repaints them: Anthropic reads as clay, OpenAI as the
+ * live hue.
  */
 const FAMILY_COLOR: Record<ModelFamily, { dot: string; fill: string }> = {
-  Anthropic: { dot: "#C06A2C", fill: "#9A511C" },
-  OpenAI: { dot: "#21584A", fill: "#163F34" },
+  Anthropic: { dot: TINT.clay, fill: TINT.clayInk },
+  OpenAI: { dot: TINT.live, fill: TINT.liveInk },
 };
 
 /**
- * The Agency mark — a hand-drawn COMPASS STAR on warm ink. Agency means the
- * capacity to act and set direction; the compass rose is the almanac/field-guide
- * device that anchors the editorial brand. A four-point star (marigold) with a
- * pine counter-point, struck like a maker's mark rather than a stock glyph. Reads
- * at any size; nothing about it says "generated".
+ * The Agency mark - a hand-drawn COMPASS STAR on ink. Agency means the capacity to
+ * act and set direction; the compass rose is the almanac/field-guide device that
+ * anchors the editorial brand. A four-point star (the accent) with a counter-point
+ * in the live hue, struck like a maker's mark rather than a stock glyph. Reads at
+ * any size; nothing about it says "generated".
+ *
+ * The fills are Tailwind `fill-*` utilities, not attributes: `var()` isn't
+ * substituted in an SVG presentation attribute, so a themed color has to arrive as
+ * a CSS declaration.
  */
 export function AgencyMark({ className = "h-7 w-7" }: { className?: string }) {
   return (
     <span
-      className={`inline-flex items-center justify-center rounded-[10px] ${className}`}
-      style={{ backgroundColor: TINT.ink }}
+      className={`inline-flex items-center justify-center rounded-[10px] bg-ink ${className}`}
       aria-hidden
     >
       <svg viewBox="0 0 24 24" className="h-[62%] w-[62%]" fill="none">
-        {/* primary compass point — vertical, marigold */}
-        <path d="M12 3 L13.7 12 L12 21 L10.3 12 Z" fill={TINT.accent} />
-        {/* secondary points — horizontal, pine (the needle's counter-axis) */}
-        <path d="M3 12 L12 10.5 L21 12 L12 13.5 Z" fill={TINT.live} opacity="0.9" />
+        {/* primary compass point - vertical, the accent */}
+        <path d="M12 3 L13.7 12 L12 21 L10.3 12 Z" className="fill-accent" />
+        {/* secondary points - horizontal, the live hue (the needle's counter-axis) */}
+        <path d="M3 12 L12 10.5 L21 12 L12 13.5 Z" className="fill-live" opacity="0.9" />
         {/* hub */}
-        <circle cx="12" cy="12" r="1.7" fill={TINT.canvas} />
+        <circle cx="12" cy="12" r="1.7" className="fill-canvas" />
       </svg>
     </span>
   );
@@ -72,7 +55,11 @@ export function ErrorNote({ message, className = "" }: { message: string; classN
   return (
     <div
       className={`rounded-lg border px-3.5 py-2.5 text-sm ${className}`}
-      style={{ borderColor: `${TINT.danger}33`, backgroundColor: `${TINT.danger}0d`, color: "#9A2F26" }}
+      style={{
+        borderColor: tintAlpha("danger", 0.2),
+        backgroundColor: tintAlpha("danger", 0.05),
+        color: TINT.dangerInk,
+      }}
     >
       {message}
     </div>
@@ -118,13 +105,16 @@ export function relativeTime(iso: string): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-/** Session status pill (running / idle). Pulsing green dot when live. */
+/** Session status pill (running / idle). Pulsing live dot when running. */
 export function StatusPill({ status }: { status: "working" | "idle" }) {
   const live = status === "working";
   return (
     <span
       className="inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 font-mono text-[11px] font-medium"
-      style={{ backgroundColor: live ? `${TINT.live}14` : TINT.fill, color: live ? TINT.live : TINT.muted }}
+      style={{
+        backgroundColor: live ? tintAlpha("live", 0.08) : TINT.fill,
+        color: live ? TINT.live : TINT.muted,
+      }}
     >
       <span
         className={`h-1.5 w-1.5 rounded-full ${live ? "live-dot" : ""}`}
@@ -137,7 +127,7 @@ export function StatusPill({ status }: { status: "working" | "idle" }) {
 
 /**
  * Org-visibility badge for a resource (skill / integration / agent). "Shared"
- * (globe, pine) means every org member can see + use it; "Private" (lock, faint)
+ * (globe, live hue) means every org member can see + use it; "Private" (lock, faint)
  * means creator-only. Mirrors the `shared` flag set by the editor's toggle.
  */
 export function SharedBadge({ shared }: { shared: boolean }) {
@@ -146,7 +136,7 @@ export function SharedBadge({ shared }: { shared: boolean }) {
       className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 font-mono text-[10px] font-medium"
       style={
         shared
-          ? { backgroundColor: `${TINT.live}14`, color: TINT.live }
+          ? { backgroundColor: tintAlpha("live", 0.08), color: TINT.live }
           : { backgroundColor: TINT.fill, color: TINT.muted }
       }
       title={shared ? "Shared with the organization" : "Private to you"}
@@ -209,9 +199,13 @@ export function ModelPicker({
             title={allowed ? undefined : "Unavailable in Isolated mode - reached cross-region, which the isolated network can't do."}
             onClick={() => onChange(k)}
             className="focus-ring inline-flex min-h-[40px] items-center gap-2 rounded-lg border px-3 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40"
-            style={active ? { backgroundColor: fill, borderColor: fill, color: "#fff" } : { borderColor: TINT.line, color: TINT.ink }}
+            style={
+              active
+                ? { backgroundColor: fill, borderColor: fill, color: TINT.onStrong }
+                : { borderColor: TINT.line, color: TINT.ink }
+            }
           >
-            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: active ? "#fff" : dot }} />
+            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: active ? TINT.onStrong : dot }} />
             {info.label}
           </button>
         );
@@ -220,7 +214,7 @@ export function ModelPicker({
   );
 }
 
-/** Accessible on/off switch - marigold when on (role=switch). 40px hit target. */
+/** Accessible on/off switch - the accent when on (role=switch). 40px hit target. */
 export function Toggle({
   checked,
   onChange,
@@ -244,12 +238,18 @@ export function Toggle({
     >
       <span
         aria-hidden
-        className={`relative h-6 w-11 rounded-full transition-colors ${checked ? "bg-amber" : "bg-fill ring-1 ring-inset ring-line"}`}
+        className={`relative h-6 w-11 rounded-full transition-colors ${checked ? "bg-accent" : "bg-fill ring-1 ring-inset ring-line"}`}
       >
         {/* track 44 (w-11), knob 20 (h-5 w-5), 2px inset each side → travel 20px,
-            so the knob seats symmetrically at both ends (no flush-right wonk). */}
+            so the knob seats symmetrically at both ends (no flush-right wonk). The
+            knob's color is state-dependent because the two track colors sit on
+            opposite sides of the palette: `on-accent` is the tone guaranteed to read
+            on an accent fill (dark in every theme, since every theme's accent is
+            light), `surface` the one that reads on the neutral off-track. */}
         <span
-          className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${checked ? "translate-x-5" : "translate-x-0"}`}
+          className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full shadow-sm transition-transform ${
+            checked ? "bg-on-accent translate-x-5" : "bg-surface translate-x-0"
+          }`}
         />
       </span>
     </button>
@@ -323,7 +323,7 @@ export function NetworkModePicker({
             className="focus-ring flex items-start gap-3 rounded-lg border p-3.5 text-left transition-colors"
             style={
               active
-                ? { borderColor: TINT.accent, backgroundColor: `${TINT.accent}0d` }
+                ? { borderColor: TINT.accent, backgroundColor: tintAlpha("accent", 0.05) }
                 : { borderColor: TINT.line }
             }
           >
@@ -331,7 +331,7 @@ export function NetworkModePicker({
               className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
               style={
                 active
-                  ? { backgroundColor: TINT.accent, color: "#fff" }
+                  ? { backgroundColor: TINT.accent, color: TINT.onAccent }
                   : { backgroundColor: TINT.fill, color: TINT.muted }
               }
             >
@@ -387,7 +387,7 @@ export function SystemPromptField({
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className="focus-ring mt-2 inline-flex items-center gap-1.5 rounded-md text-xs font-medium text-amber-deep transition-colors hover:text-amber"
+        className="focus-ring mt-2 inline-flex items-center gap-1.5 rounded-md text-xs font-medium text-accent-ink transition-colors hover:text-accent"
       >
         <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
         {open ? "Hide" : "Preview"} full system prompt
@@ -474,7 +474,7 @@ export function CopyRow({
           title="Copy"
           aria-label={`Copy ${label}`}
         >
-          {copied ? <Check className="h-4 w-4 text-pine-deep" /> : <Copy className="h-4 w-4" />}
+          {copied ? <Check className="h-4 w-4 text-live-ink" /> : <Copy className="h-4 w-4" />}
         </button>
       </div>
     </div>
@@ -507,7 +507,7 @@ export function AgentListSkeleton() {
 /**
  * Left-rail + label color per trace event type. Reason is ink (the agent
  * thinking), tool call/result share the accent (observable work), inject is warn
- * (external), start faint, answer green, error red.
+ * (external), start faint, answer the live hue, error danger.
  */
 const EVENT_TINT: Record<TrajectoryEvent["type"], string> = {
   session_start: TINT.faint,

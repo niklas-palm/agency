@@ -6,13 +6,18 @@
  * Charts use Recharts (smooth monotone areas). Per the frontend guidance the
  * initial grow animation is off (`isAnimationActive={false}`) - the dashboard
  * refreshes every 15s and animating each refresh would be noise, not signal.
+ *
+ * Colors come from `useTint()` (resolved values) rather than the var()-based
+ * `TINT`: Recharts sets `stroke`/`fill`/`stopColor` as SVG presentation
+ * attributes, where a CSS variable is not substituted.
  */
 import { useEffect, useId, useState } from "react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { AgentRun, AgentRunTrace, MetricsSummary } from "@agency/shared";
 import { ChevronRight } from "lucide-react";
 import { getMetrics, listRuns, getRunTrace } from "../api.js";
-import { Divider, ErrorNote, prettyTool, Skeleton, Stat, TINT } from "../components.js";
+import { Divider, ErrorNote, prettyTool, Skeleton, Stat } from "../components.js";
+import { useTint } from "../theme.js";
 import { Trace } from "../Trace.js";
 
 // Selectable windows, in hours. Default 24h (hourly x-axis). Windows up to 7d are
@@ -27,6 +32,7 @@ const WINDOWS: { label: string; hours: number }[] = [
 
 export function Monitor({ agentId, version }: { agentId: string; version?: number }) {
   const [hours, setHours] = useState<number>(24);
+  const tint = useTint();
   const [metrics, setMetrics] = useState<MetricsSummary | null>(null);
   const [err, setErr] = useState("");
 
@@ -58,7 +64,7 @@ export function Monitor({ agentId, version }: { agentId: string; version?: numbe
           <Stat
             value={metrics?.errors ?? "-"}
             label="Errors"
-            tint={metrics && metrics.errors > 0 ? TINT.danger : undefined}
+            tint={metrics && metrics.errors > 0 ? tint.danger : undefined}
           />
           <Stat value={metrics?.toolUses ?? "-"} label="Tool calls" />
           <Stat value={metrics ? fmtTokens(metrics.totalTokens) : "-"} label="Tokens" />
@@ -89,15 +95,15 @@ export function Monitor({ agentId, version }: { agentId: string; version?: numbe
             title="Sessions & invocations"
             metrics={metrics}
             series={[
-              { field: "sessions", label: "sessions", tint: TINT.accent },
-              { field: "invocations", label: "invocations", tint: TINT.accentInk },
+              { field: "sessions", label: "sessions", tint: tint.accent },
+              { field: "invocations", label: "invocations", tint: tint.accentInk },
             ]}
           />
           {metrics.errors > 0 && (
-            <Chart title="Errors" metrics={metrics} series={[{ field: "errors", label: "errors", tint: TINT.danger }]} />
+            <Chart title="Errors" metrics={metrics} series={[{ field: "errors", label: "errors", tint: tint.danger }]} />
           )}
           {metrics.totalTokens > 0 && (
-            <Chart title="Spend (USD)" metrics={metrics} money series={[{ field: "costUsd", label: "cost", tint: TINT.live }]} />
+            <Chart title="Spend (USD)" metrics={metrics} money series={[{ field: "costUsd", label: "cost", tint: tint.live }]} />
           )}
           <ToolChart metrics={metrics} />
           <ToolBreakdown breakdown={metrics.toolBreakdown} />
@@ -189,6 +195,7 @@ function RunRow({
 }) {
   const [trace, setTrace] = useState<AgentRunTrace | null>(null);
   const [err, setErr] = useState("");
+  const tint = useTint();
 
   useEffect(() => {
     if (!open || trace) return; // fetch once, keep it while the row stays mounted
@@ -217,7 +224,7 @@ function RunRow({
         <span className="shrink-0 font-mono text-[11px] tabular-nums text-ink">{fmtWhen(run.startedAt)}</span>
         <span
           className="shrink-0 font-mono text-[10px] font-semibold uppercase tracking-[0.14em]"
-          style={{ color: failed ? TINT.danger : TINT.live }}
+          style={{ color: failed ? tint.danger : tint.live }}
         >
           {run.outcome}
         </span>
@@ -350,6 +357,7 @@ function Chart({
   money?: boolean;
 }) {
   const uid = useId().replace(/:/g, "");
+  const tint = useTint();
   const data = metrics.series.map((b) => {
     const row: Record<string, string | number> = { label: fmtBucket(b.bucket, metrics.granularity) };
     for (const s of series) row[s.field] = b[s.field];
@@ -378,8 +386,8 @@ function Chart({
               </defs>
               <XAxis
                 dataKey="label"
-                tick={{ fontSize: 10, fill: TINT.faint, fontFamily: "IBM Plex Mono, monospace" }}
-                axisLine={{ stroke: TINT.line }}
+                tick={{ fontSize: 10, fill: tint.faint, fontFamily: "IBM Plex Mono, monospace" }}
+                axisLine={{ stroke: tint.line }}
                 tickLine={false}
                 minTickGap={28}
                 interval="preserveStartEnd"
@@ -390,11 +398,11 @@ function Chart({
                 allowDecimals={money}
                 width={money ? 44 : 28}
                 tickFormatter={money ? (v: number) => fmtCostPrecise(v) : undefined}
-                tick={{ fontSize: 10, fill: TINT.faint, fontFamily: "IBM Plex Mono, monospace" }}
+                tick={{ fontSize: 10, fill: tint.faint, fontFamily: "IBM Plex Mono, monospace" }}
                 axisLine={false}
                 tickLine={false}
               />
-              <Tooltip content={<ChartTooltip money={money} />} cursor={{ stroke: TINT.line }} />
+              <Tooltip content={<ChartTooltip money={money} />} cursor={{ stroke: tint.line }} />
               {/* Render in reverse so a later (typically larger, e.g. invocations)
                   series is drawn first/underneath and doesn't mask the smaller one
                   (sessions) on top. The legend keeps the declared order; the
@@ -428,9 +436,13 @@ function Chart({
  */
 function ToolChart({ metrics }: { metrics: MetricsSummary }) {
   const uid = useId().replace(/:/g, "");
+  const tint = useTint();
   // Which tools to plot: everything used in the window, most-used first.
   const tools = Object.entries(metrics.toolBreakdown).sort((a, b) => b[1] - a[1]).map(([t]) => t);
-  const palette = [TINT.accent, TINT.warn, TINT.live, TINT.accentInk, TINT.danger, TINT.muted];
+  // Six visually distinct hues. `clay` rather than `accentInk` for the fourth:
+  // a dark theme's accent and accent-ink are close cousins, which would plot two
+  // tools in near-identical colors.
+  const palette = [tint.accent, tint.warn, tint.live, tint.clay, tint.danger, tint.muted];
   const data = metrics.series.map((b) => {
     const row: Record<string, string | number> = { label: fmtBucket(b.bucket, metrics.granularity) };
     for (const t of tools) row[t] = b.toolBreakdown[t] ?? 0;
@@ -460,8 +472,8 @@ function ToolChart({ metrics }: { metrics: MetricsSummary }) {
               </defs>
               <XAxis
                 dataKey="label"
-                tick={{ fontSize: 10, fill: TINT.faint, fontFamily: "IBM Plex Mono, monospace" }}
-                axisLine={{ stroke: TINT.line }}
+                tick={{ fontSize: 10, fill: tint.faint, fontFamily: "IBM Plex Mono, monospace" }}
+                axisLine={{ stroke: tint.line }}
                 tickLine={false}
                 minTickGap={28}
                 interval="preserveStartEnd"
@@ -469,11 +481,11 @@ function ToolChart({ metrics }: { metrics: MetricsSummary }) {
               <YAxis
                 allowDecimals={false}
                 width={28}
-                tick={{ fontSize: 10, fill: TINT.faint, fontFamily: "IBM Plex Mono, monospace" }}
+                tick={{ fontSize: 10, fill: tint.faint, fontFamily: "IBM Plex Mono, monospace" }}
                 axisLine={false}
                 tickLine={false}
               />
-              <Tooltip content={<ChartTooltip />} cursor={{ stroke: TINT.line }} />
+              <Tooltip content={<ChartTooltip />} cursor={{ stroke: tint.line }} />
               {tools.map((t, i) => (
                 <Area
                   key={t}
@@ -539,6 +551,7 @@ function ChartTooltip({
 }
 
 function ToolBreakdown({ breakdown }: { breakdown: Record<string, number> }) {
+  const tint = useTint();
   const rows = Object.entries(breakdown).sort((a, b) => b[1] - a[1]);
   if (rows.length === 0) return null;
   const max = Math.max(...rows.map(([, n]) => n));
@@ -552,7 +565,7 @@ function ToolBreakdown({ breakdown }: { breakdown: Record<string, number> }) {
             <div className="h-2 flex-1 overflow-hidden rounded-full bg-fill">
               <div
                 className="h-full rounded-full"
-                style={{ width: `${(n / max) * 100}%`, backgroundColor: TINT.accent }}
+                style={{ width: `${(n / max) * 100}%`, backgroundColor: tint.accent }}
               />
             </div>
             <span className="w-8 shrink-0 text-right font-mono text-xs tabular-nums text-muted">{n}</span>

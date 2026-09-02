@@ -9,7 +9,16 @@
  * IBM Plex Mono for machine data; and a restrained serif (Fraunces) reserved ONLY
  * for the small editorial eyebrows — one quiet wink, never headlines. Color always
  * means something.
+ *
+ * Every color here resolves to a CSS custom property, so a THEME can repaint the
+ * whole console by redefining ~20 variables (`src/styles.css` holds the palettes,
+ * `src/theme.ts` the switcher). Hence the SEMANTIC names — `accent`, not `amber`:
+ * the default theme's accent is marigold, Catppuccin's is mauve. Values are
+ * space-separated channels so Tailwind's `/opacity` modifiers keep working.
  */
+/** A palette token: `bg-accent`, `text-muted/60`, … all read from `--c-<token>`. */
+const token = (name) => `rgb(var(--c-${name}) / <alpha-value>)`;
+
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
@@ -25,29 +34,40 @@ export default {
         mono: ["IBM Plex Mono", "ui-monospace", "SFMono-Regular", "monospace"],
       },
       colors: {
-        // Warm paper spine — cream, never cold white.
-        canvas: "#FAF8F4", // page
-        surface: "#FFFDFA", // cards / panels (warm white)
-        raised: "#F5F1E8", // recessed / lifted inner fills
-        ink: "#1A1714", // primary text (warm near-black)
-        muted: "#6E655A", // secondary text (AA on canvas)
-        faint: "#A79E90", // tertiary / placeholders / hairline icons
-        line: "#E6DFD2", // hairline borders (warm)
-        fill: "#F1EBDF", // chips, skeletons, recessed fills
-        // The signature — marigold. `amber` for fills/marks (dark ink sits on it);
-        // `amber-deep` for hover/pressed and for small text/marks that need AA.
-        amber: "#E8A33D",
-        "amber-deep": "#B4741A",
-        // Alive — pine green. Text-safe on cream; also a confident fill.
-        pine: "#21584A",
-        "pine-deep": "#163F34",
-        // Warm status hues, used sparingly.
-        danger: "#B23A2E",
-        "danger-ink": "#9A2F26",
+        // Paper spine — page, panels, recessed fills.
+        canvas: token("canvas"), // page
+        surface: token("surface"), // cards / panels
+        raised: token("raised"), // recessed / lifted inner fills
+        ink: token("ink"), // primary text
+        muted: token("muted"), // secondary text (AA on canvas)
+        faint: token("faint"), // tertiary / placeholders / hairline icons
+        line: token("line"), // hairline borders
+        fill: token("fill"), // chips, skeletons, recessed fills
+        // The signature. `accent` for fills and marks; `accent-hover` for the
+        // hover/pressed fill; `accent-ink` for small text/marks that need AA.
+        accent: token("accent"),
+        "accent-hover": token("accent-hover"),
+        "accent-ink": token("accent-ink"),
+        // Alive — the "running / healthy / shared" hue. `-ink` is the text-safe tone.
+        live: token("live"),
+        "live-ink": token("live-ink"),
+        // A second warm hue, for the two vendor marks and code-sample numbers.
+        clay: token("clay"),
+        "clay-ink": token("clay-ink"),
+        // Status hues, used sparingly.
+        warn: token("warn"),
+        danger: token("danger"),
+        "danger-ink": token("danger-ink"),
+        // Text/iconography ON a filled surface: `on-accent` sits on `accent`,
+        // `on-strong` on a deep `*-ink` fill. (In a dark theme every saturated
+        // tone is light, so both resolve to the same near-black.)
+        "on-accent": token("on-accent"),
+        "on-strong": token("on-strong"),
       },
       boxShadow: {
-        // A soft warm lift for the primary surface — paper on paper, not a hard drop.
-        card: "0 1px 2px rgba(26,23,20,0.04), 0 8px 24px -12px rgba(26,23,20,0.10)",
+        // A soft lift for the primary surface — paper on paper, not a hard drop.
+        // Per-theme: a dark palette needs a heavier, blacker shadow to read at all.
+        card: "var(--shadow-card)",
       },
     },
   },
