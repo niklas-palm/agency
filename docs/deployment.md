@@ -103,6 +103,8 @@ Create or update it with the script (idempotent - safe to re-run):
 
 ```bash
 bash .github/scripts/setup-oidc-role.sh <owner>/<repo>
+# …and, if you want PR previews, the separate preview role (see PR previews):
+PREVIEWS=1 bash .github/scripts/setup-oidc-role.sh <owner>/<repo>
 ```
 
 **The `sub` claim format is the one thing that will catch you out.** It's documented as
@@ -186,9 +188,11 @@ CDK context carries the per-deployment values the repo can't ship a default for.
 | `domainName` + `hostedZoneId` | No | No custom domain: the SPA serves on the CloudFront hostname and the API on its execute-api endpoint. See [Custom domain](#custom-domain). |
 | `cognitoDomainPrefix` | Only for a second deployment in one region | Defaults to `agency-auth`; the prefix is globally unique per region, so a second stack fails. |
 | `sampleApi` | No | `AgencySampleApi` is **opt-in**: `--all` leaves it out. Pass `-c sampleApi=true` to deploy the integrations E2E target. |
+| `previews` | No | `AgencyWebPreview` is **opt-in** and needs a domain: `--all` leaves it out. Pass `-c previews=true` for PR previews at `<pr>.<domainName>`. See [PR previews](#pr-previews). |
 
 So `cdk deploy --all` provisions **five** stacks - six with a custom domain (`AgencyWebCert`),
-and the sample API is one more with `-c sampleApi=true`.
+seven with `-c previews=true` on top of that (`AgencyWebPreview`), and the sample API is one
+more with `-c sampleApi=true`.
 
 ## Custom domain
 
@@ -296,6 +300,94 @@ domain. On the deploy that first introduces a domain the SPA is built against
 served after the same deploy creates the mapping and the records, and building it against the
 old host would make `smoke.sh`'s "served bundle targets this API" check fail immediately.
 
+## PR previews
+
+**Opt-in** (`-c previews=true` plus a custom domain). Label a pull request `preview` and
+`.github/workflows/preview.yml` publishes that branch's SPA at
+**`https://<pr-number>.<domainName>`**, comments the URL on the PR, republishes on every push,
+and deletes it when the label comes off or the PR closes.
+
+### Frontend-only, on purpose
+
+A preview rebuilds the **bundle only** and points it at the already-deployed API, so it can
+only tell the truth about a change that lives entirely in `apps/web/`. A PR that also touches
+the control plane, the runtime, `packages/shared` or `infra` gets a comment explaining why
+there's no preview rather than a console whose backend half doesn't exist yet - which would
+look like a working preview. Markdown anywhere rides along (rule 4 means a UI change normally
+arrives *with* its doc edits, and a doc is a build input for nothing), but at least one
+`apps/web/` file must have changed - a docs-only preview would publish an unchanged console.
+
+The rule is `.github/scripts/preview-scope.sh`, tested in `preview-scope.test.sh` (CI runs it).
+It deliberately differs from `deploy-scope.sh`: a change to `apps/web/package.json` blocks
+prod's fast path but is fine for a preview, because a preview rebuilds everything from source
+anyway.
+
+### One distribution, a prefix per PR
+
+`AgencyWebPreview` is a single private bucket behind a single CloudFront distribution with the
+alternate name `*.<domainName>`. A CloudFront **function** (`infra/lib/preview-router.js`, run
+on viewer request) maps the host's first label to the matching key prefix and appends
+`index.html` for a directory request:
+
+```
+123.<domain>/            ->  s3://<previews>/123/index.html
+123.<domain>/assets/x.js ->  s3://<previews>/123/assets/x.js
+```
+
+That is what makes a preview cheap: publishing is `aws s3 sync` into `123/` plus one
+invalidation of `/123/*` - no CloudFormation, ~1 minute. A distribution per PR would mean a
+stack, a certificate and a DNS record per PR, several minutes of waiting, and a quota to run
+into. The label must be all digits; anything else (the distribution's own `*.cloudfront.net`
+name, or a probe at some other subdomain the wildcard record now answers for) gets a 404 from
+the edge. The URI carries the prefix, so the cache key does too - one PR's cache can't serve
+another's bundle.
+
+Two safety nets on cost: CI deletes a PR's prefix on close, and the bucket has a **30-day
+lifecycle expiry** for whatever CI missed (a cancelled teardown, a PR closed while the workflow
+was off).
+
+### What it costs you to know
+
+- **A preview talks to the real API and the real user pool.** Anything you create in one is a
+  real agent in a real org. The build sets `VITE_PREVIEW_LABEL`, so the console shows a
+  permanent `Preview · PR #123 · live data` chip - a preview must never be mistakable for
+  production. Responses carry `X-Robots-Tag: noindex, nofollow`.
+- **A preview is a sibling host, never a path on the production origin.** That is deliberate:
+  the SPA keeps its access token in `localStorage`, which is per-origin, so unreviewed PR code
+  served from `<domainName>` itself could read a signed-in user's real token. From
+  `123.<domainName>` it cannot. (The console sets no cookies, so there's nothing scoped to the
+  parent domain either.)
+- **A wildcard DNS record answers for every subdomain you have no explicit record for.** The
+  apex and `api.` keep working - an explicit record always beats a wildcard - but plan around
+  it before adding new hostnames.
+
+### Setting it up
+
+1. `PREVIEWS=1 bash .github/scripts/setup-oidc-role.sh <owner>/<repo>` - creates
+   **`agency-github-preview`**, a role that can write the previews bucket, invalidate the
+   previews distribution and read stack outputs, and **nothing else**. It cannot assume the CDK
+   bootstrap roles, so no PR can deploy infrastructure. This is why previews don't reuse
+   `agency-github-deploy`: that role's whole point is that no PR branch can deploy, and
+   previews run on `pull_request`. (`cloudformation:DescribeStacks` has no resource-level
+   scoping in IAM, so that one statement is `*`; stack outputs are hostnames and ids, not
+   secrets.)
+2. `gh variable set AWS_PREVIEW_ROLE_ARN --body arn:aws:iam::<acct>:role/agency-github-preview`.
+3. Create the **`preview`** GitHub environment (Settings → Environments). The preview role
+   trusts exactly one subject, `repo:<owner>/<repo>:environment:preview`, so nothing outside
+   that environment can assume it - and that's where you'd add a required reviewer if you want
+   previews approved before they publish. Note that a reviewer requirement gates the
+   **teardown** job too, since it needs the same credentials.
+4. Set `"previews": "true"` in `infra/cdk.context.json` and deploy. The first deploy issues the
+   `*.<domainName>` certificate (DNS-validated, so the zone must be delegated - the same
+   caveat as the site certificate) and creates the wildcard alias records. The **existing
+   site certificate is not touched**: previews get a certificate of their own precisely so
+   that enabling them can't re-issue and swap the certificate on the production distribution.
+5. Label a frontend PR `preview`.
+
+A fork PR is skipped: GitHub withholds write permissions and secrets from fork PRs, and the
+workflow also checks that the head repo is this repo, so it fails with an explanation rather
+than an obscure OIDC error.
+
 ## Stacks
 
 - **AgencyAuth** - Cognito user pool, a web app client, and an M2M
@@ -349,6 +441,12 @@ old host would make `smoke.sh`'s "served bundle targets this API" check fail imm
   DNS-validated certificate for the site domain, because CloudFront accepts certificates only
   from us-east-1. `AgencyWeb` consumes the ARN via `crossRegionReferences`. See
   [Custom domain](#custom-domain).
+- **AgencyWebPreview** (**opt-in** - `-c previews=true`, and only with a custom domain) - one
+  private bucket + one CloudFront distribution serving EVERY open PR preview at
+  `<pr-number>.<domainName>`, plus the `*.<domainName>` wildcard alias records and a
+  `*.<domainName>` certificate (issued alongside the site one in `AgencyWebCert`). A
+  CloudFront function maps the host's first label to the key prefix, so publishing a preview
+  is an `s3 sync` with no CloudFormation. See [PR previews](#pr-previews).
 - **AgencySampleApi** (**opt-in** - `-c sampleApi=true`; `--all` leaves it out) - a removable
   demo pet-store API (its own stack so it never entangles the platform;
   `cdk destroy AgencySampleApi`) used as the integrations E2E target. See docs/integrations.md.

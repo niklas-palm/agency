@@ -69,6 +69,14 @@ Infrastructure changes: run `cdk synth` and include what `cdk diff` shows. If yo
 anything under `apps/agent-runtime/`, note that it rebuilds the container image - so the asset
 hash changes and the runtime redeploys.
 
+**A frontend-only PR can be previewed in a browser.** If the maintainer adds the `preview`
+label, CI publishes your branch's SPA at `https://<pr-number>.<site-domain>` and comments the
+URL; it republishes on every push and is deleted when the PR closes. It's only offered for a PR
+whose changed files are all under `apps/web/` (plus any markdown) - a preview deploys no
+backend, so a mixed PR would render a console whose other half isn't deployed. That preview talks to the **real** API,
+so treat what you do in it as real; the console shows a `Preview · PR #…` chip to that effect.
+See [docs/deployment.md](docs/deployment.md#pr-previews).
+
 ## Tests
 
 **A bug fix comes with a regression test.** More specifically, a test that *fails without your

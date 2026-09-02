@@ -36,5 +36,7 @@ jobs:
           AWS_CONFIG_FILE: /dev/null
           AWS_SHARED_CREDENTIALS_FILE: /dev/null
       # The deploy-scope rule decides whether a backend change gets deployed at all, so its
-      # tests run here too - a wrong answer there is silent.
+      # tests run here too - a wrong answer there is silent. Same for preview-scope, which
+      # decides whether a PR can be honestly represented by an SPA-only preview.
       - run: bash .github/scripts/deploy-scope.test.sh
+      - run: bash .github/scripts/preview-scope.test.sh

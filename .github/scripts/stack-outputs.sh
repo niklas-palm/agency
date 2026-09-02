@@ -69,6 +69,18 @@ out web_client_id "$WEB_CLIENT_ID"
 
 echo "resolved: api=${API_URL:-<none>} bucket=${SITE_BUCKET:-<none>} dist=${DISTRIBUTION_ID:-<none>} pool=${USER_POOL_ID:-<none>} client=${WEB_CLIENT_ID:-<none>}"
 
+# PR previews (AgencyWebPreview, opt-in `-c previews=true`). Read here rather than in the
+# preview workflow so there is ONE place that knows how CI finds deployed values - and so the
+# deployment's hostname reaches CI from the stack, never from a tracked workflow file.
+# Absent when previews aren't deployed, which is why they're outside REQUIRE_ALL.
+PREVIEW_BUCKET=$(get AgencyWebPreview PreviewBucketName)
+PREVIEW_DISTRIBUTION_ID=$(get AgencyWebPreview PreviewDistributionId)
+PREVIEW_HOST_SUFFIX=$(get AgencyWebPreview PreviewHostSuffix)
+
+out preview_bucket "$PREVIEW_BUCKET"
+out preview_distribution_id "$PREVIEW_DISTRIBUTION_ID"
+out preview_host_suffix "$PREVIEW_HOST_SUFFIX"
+
 # On the FAST path these four must all exist - it syncs straight to the bucket, so an empty
 # value would mean syncing nowhere or building against the wrong origin. The caller sets
 # REQUIRE_ALL=1 there.
@@ -77,6 +89,19 @@ if [ "${REQUIRE_ALL:-0}" = "1" ]; then
     "user_pool_id:$USER_POOL_ID" "web_client_id:$WEB_CLIENT_ID"; do
     if [ -z "${pair#*:}" ]; then
       echo "::error::missing stack output '${pair%%:*}' - is the stack deployed? Run the full deploy first." >&2
+      exit 1
+    fi
+  done
+fi
+
+# The preview workflow needs the preview trio as well as the build inputs. A missing one
+# means AgencyWebPreview isn't deployed (previews are opt-in), and syncing "nowhere" would
+# otherwise look like a successful publish.
+if [ "${REQUIRE_PREVIEW:-0}" = "1" ]; then
+  for pair in "preview_bucket:$PREVIEW_BUCKET" "preview_distribution_id:$PREVIEW_DISTRIBUTION_ID" \
+    "preview_host_suffix:$PREVIEW_HOST_SUFFIX"; do
+    if [ -z "${pair#*:}" ]; then
+      echo "::error::missing stack output '${pair%%:*}' - AgencyWebPreview isn't deployed. Set previews=true in infra/cdk.context.json and deploy (docs/deployment.md)." >&2
       exit 1
     fi
   done

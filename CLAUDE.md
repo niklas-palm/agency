@@ -49,7 +49,10 @@ infra                CDK: AgencyAuth, AgencyData (agents/trajectory/tokens/versi
                      AgencyWeb, AgencyWebCert (the us-east-1 CloudFront cert, only when a
                      custom domain is configured - `-c domainName=… -c hostedZoneId=…`;
                      the API's cert is regional and lives in AgencyControlPlane),
-                     AgencySampleApi (opt-in, `-c sampleApi=true`).
+                     AgencySampleApi (opt-in, `-c sampleApi=true`),
+                     AgencyWebPreview (opt-in, `-c previews=true` + a domain: PR previews at
+                     `<pr>.<domain>` - one bucket + one distribution for every PR, a
+                     CloudFront function maps host→key prefix; see docs/deployment.md).
                      `logging.ts` puts a 30-day CloudWatch retention on every log group
                      the platform writes to (Lambda + AgentCore create them, so it's
                      applied by name).
@@ -58,6 +61,10 @@ scripts              ensure-tables, e2e, models-e2e, mint-m2m-token.
                      Two deploy paths: UI-only (build + s3 sync + CDN invalidate) vs full
                      `cdk deploy --all`. The rule is a TESTED script
                      (.github/scripts/deploy-scope.sh) - see docs/deployment.md.
+                     Also PR previews (preview.yml): label a FRONTEND-ONLY PR `preview` and
+                     its SPA publishes to `<pr>.<domain>` (a second, deliberately narrow
+                     OIDC role - a PR must never be able to deploy infra; the previewable
+                     rule is its own tested script, preview-scope.sh).
 docs/                Living documentation - the reference for WHY, and part of every change
                      (standing rules 4-6). Start at docs/architecture.md.
 README.md            The public front door. LICENSE (Apache-2.0) + NOTICE + SECURITY.md +
@@ -221,7 +228,7 @@ states the same rules for human contributors; if you change one, change both.
     `apps/agent-runtime/src`, which is in the Docker build context, so a stray file changes
     the image hash and shows up as infra drift. For infra changes, include what `cdk diff`
     shows; a clean tree should diff to zero on every stack (five, plus one each for a
-    custom domain and `-c sampleApi=true` - see `docs/deployment.md`).
+    custom domain, `-c previews=true` and `-c sampleApi=true` - see `docs/deployment.md`).
 17. **Commit messages say what changed and *why it mattered*** - the failure mode, not the
     diff. Present tense, lowercase subject, no trailing period. `git log` here is
     documentation.

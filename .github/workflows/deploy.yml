@@ -73,6 +73,7 @@ jobs:
           AWS_CONFIG_FILE: /dev/null
           AWS_SHARED_CREDENTIALS_FILE: /dev/null
       - run: bash .github/scripts/deploy-scope.test.sh
+      - run: bash .github/scripts/preview-scope.test.sh
 
   scope:
     needs: gate

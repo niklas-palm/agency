@@ -1,0 +1,206 @@
+# Publish a PR preview of the SPA at `<pr-number>.<domainName>`.
+#
+# Opt in per PR with the `preview` LABEL; remove the label (or close the PR) and the preview
+# is torn down. Frontend-only, by design: a preview rebuilds the bundle and syncs it to a
+# prefix in the previews bucket (AgencyWebPreview) - it deploys no backend, so a PR that
+# also changes the control plane, the runtime, shared types or infra gets an explanation
+# instead of a preview that only looks right (.github/scripts/preview-scope.sh).
+#
+# Publishing is `s3 sync` + one invalidation, no CloudFormation, so a preview lands in about
+# a minute. One shared distribution serves every PR; a CloudFront function maps the host's
+# first label to the key prefix (infra/lib/preview-router.js).
+#
+# CREDENTIALS. This workflow runs on `pull_request`, so unlike deploy.yml it can run code
+# that nobody has reviewed yet. Three things keep that safe:
+#   * a SEPARATE OIDC role (`AWS_PREVIEW_ROLE_ARN`) that can write the previews bucket and
+#     invalidate the previews distribution - and nothing else. It cannot assume the CDK
+#     bootstrap roles, so no PR can deploy infrastructure.
+#   * the `preview` environment, whose `sub` claim is the only one that role trusts (and
+#     where a reviewer requirement can be added).
+#   * a same-repository guard, so a fork PR is skipped rather than failing obscurely
+#     (GitHub already withholds write permissions and secrets from fork PRs).
+# A preview is served from a sibling HOST, never a path on the production origin, so its
+# JavaScript cannot read a signed-in user's tokens out of localStorage.
+#
+# WHAT A PREVIEW TALKS TO: the real, deployed API and user pool. It is the production
+# console with an unreviewed front end - a chip in the top bar says which PR it is.
+name: PR preview
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, labeled, unlabeled, closed]
+
+concurrency:
+  # One publish per PR at a time, and a newer push supersedes an in-flight one - the only
+  # thing a cancel can lose is a partial sync that the next run overwrites.
+  group: preview-${{ github.event.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write # the sticky comment carrying the URL
+  id-token: write # required to mint the OIDC token
+
+env:
+  AWS_REGION: eu-north-1
+  # A repo VARIABLE, like AWS_DEPLOY_ROLE_ARN: this repository is public and a role ARN
+  # carries the account id. Create the role with:
+  #   bash .github/scripts/setup-oidc-role.sh <owner>/<repo>
+  #   gh variable set AWS_PREVIEW_ROLE_ARN --body arn:aws:iam::<acct>:role/agency-github-preview
+  ROLE_ARN: ${{ vars.AWS_PREVIEW_ROLE_ARN }}
+  PREVIEW_LABEL: preview
+
+jobs:
+  publish:
+    if: >-
+      github.event.action != 'closed'
+      && contains(github.event.pull_request.labels.*.name, 'preview')
+      && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    environment: preview
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need the base commit to scope the change
+      - name: Check the preview role is configured
+        run: |
+          if [ -z "${{ env.ROLE_ARN }}" ]; then
+            echo "::error::repo variable AWS_PREVIEW_ROLE_ARN is not set. Run .github/scripts/setup-oidc-role.sh, then: gh variable set AWS_PREVIEW_ROLE_ARN --body <role-arn>" >&2
+            exit 1
+          fi
+      - id: scope
+        name: Is this change previewable at all?
+        run: |
+          set -euo pipefail
+          BASE='${{ github.event.pull_request.base.sha }}'
+          HEAD='${{ github.event.pull_request.head.sha }}'
+          # Merge-base, not the base tip: otherwise everything that landed on main since the
+          # branch started counts as changed, and no PR is ever "web only".
+          MERGE_BASE=$(git merge-base "$BASE" "$HEAD")
+          git diff --name-only "$MERGE_BASE" "$HEAD" > /tmp/changed
+          echo "changed files:"; sed 's/^/  /' /tmp/changed
+          WEB_ONLY=$(bash .github/scripts/preview-scope.sh < /tmp/changed)
+          echo "→ web_only=$WEB_ONLY"
+          echo "web_only=$WEB_ONLY" >> "$GITHUB_OUTPUT"
+      - name: Explain why there's no preview
+        # Not a failure: labelling a mixed PR is a mistake to explain, not a broken build. A
+        # red check here would read as "this code is wrong", which it isn't.
+        if: steps.scope.outputs.web_only != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "::warning::not previewable - this PR changes more than apps/web, and a preview deploys only the SPA."
+          bash .github/scripts/pr-comment.sh '${{ github.event.number }}' <<'EOF'
+          **No preview for this PR.** A preview publishes only a rebuilt SPA against the
+          already-deployed backend, and this PR changes files outside `apps/web/`, so a
+          preview would show a front end whose backend half isn't deployed yet.
+
+          Split the frontend part into its own PR, or review this one on a full deploy.
+          EOF
+      - uses: actions/setup-node@v4
+        if: steps.scope.outputs.web_only == 'true'
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+        if: steps.scope.outputs.web_only == 'true'
+      - uses: aws-actions/configure-aws-credentials@v4
+        if: steps.scope.outputs.web_only == 'true'
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Resolve stack outputs
+        id: out
+        if: steps.scope.outputs.web_only == 'true'
+        # The build inputs must all resolve (REQUIRE_ALL) and so must the preview trio
+        # (REQUIRE_PREVIEW) - syncing to an empty bucket name would look like a success.
+        env:
+          REQUIRE_ALL: "1"
+          REQUIRE_PREVIEW: "1"
+        run: bash .github/scripts/stack-outputs.sh
+      - name: Build the SPA
+        if: steps.scope.outputs.web_only == 'true'
+        run: |
+          cd apps/web
+          VITE_API_URL='${{ steps.out.outputs.api_url }}' \
+          VITE_COGNITO_USER_POOL_ID='${{ steps.out.outputs.user_pool_id }}' \
+          VITE_COGNITO_CLIENT_ID='${{ steps.out.outputs.web_client_id }}' \
+          VITE_PREVIEW_LABEL='PR #${{ github.event.number }}' \
+            npx vite build
+      - name: Assert the bundle was built against the real API
+        if: steps.scope.outputs.web_only == 'true'
+        run: bash .github/scripts/assert-bundle.sh '${{ steps.out.outputs.api_url }}'
+      - name: Publish to the preview prefix
+        if: steps.scope.outputs.web_only == 'true'
+        # Same ordering as the production sync: hashed assets first with a long cache, then
+        # index.html with no-cache, so a client never gets an index pointing at assets that
+        # aren't uploaded yet. `--delete` is scoped to this PR's prefix.
+        run: |
+          set -euo pipefail
+          DEST="s3://${{ steps.out.outputs.preview_bucket }}/${{ github.event.number }}"
+          aws s3 sync apps/web/dist "$DEST" --delete --exclude index.html \
+            --cache-control 'public,max-age=31536000,immutable'
+          aws s3 cp apps/web/dist/index.html "$DEST/index.html" \
+            --cache-control 'no-cache,no-store,must-revalidate'
+          aws cloudfront create-invalidation \
+            --distribution-id '${{ steps.out.outputs.preview_distribution_id }}' \
+            --paths '/${{ github.event.number }}/*' --query 'Invalidation.Id' --output text
+      - name: Comment the URL
+        if: steps.scope.outputs.web_only == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOST: ${{ github.event.number }}.${{ steps.out.outputs.preview_host_suffix }}
+        run: |
+          bash .github/scripts/pr-comment.sh '${{ github.event.number }}' <<EOF
+          **Preview:** https://${HOST}
+
+          Rebuilt from \`${{ github.event.pull_request.head.sha }}\`. It talks to the **real
+          API and user pool**, so anything you create here is real - the top bar says which
+          PR you're looking at. Remove the \`${{ env.PREVIEW_LABEL }}\` label or close the PR
+          to tear it down.
+          EOF
+
+  # Teardown: the PR closed, or the label came off. Deliberately not gated on the scope check
+  # - if a prefix exists, remove it, whatever the PR looks like now.
+  teardown:
+    if: >-
+      (github.event.action == 'closed' || (github.event.action == 'unlabeled' && github.event.label.name == 'preview'))
+      && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    environment: preview
+    steps:
+      - uses: actions/checkout@v4
+      - name: Skip if previews were never configured
+        id: guard
+        run: |
+          if [ -z "${{ env.ROLE_ARN }}" ]; then
+            echo "::notice::AWS_PREVIEW_ROLE_ARN is not set - nothing to tear down."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: aws-actions/configure-aws-credentials@v4
+        if: steps.guard.outputs.skip != 'true'
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Resolve stack outputs
+        id: out
+        if: steps.guard.outputs.skip != 'true'
+        env:
+          REQUIRE_PREVIEW: "1"
+        run: bash .github/scripts/stack-outputs.sh
+      - name: Remove the preview
+        if: steps.guard.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          aws s3 rm "s3://${{ steps.out.outputs.preview_bucket }}/${{ github.event.number }}" --recursive
+          aws cloudfront create-invalidation \
+            --distribution-id '${{ steps.out.outputs.preview_distribution_id }}' \
+            --paths '/${{ github.event.number }}/*' --query 'Invalidation.Id' --output text
+      - name: Say so on the PR
+        if: steps.guard.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          bash .github/scripts/pr-comment.sh '${{ github.event.number }}' <<'EOF'
+          **Preview removed.** Add the `preview` label again to republish it.
+          EOF
