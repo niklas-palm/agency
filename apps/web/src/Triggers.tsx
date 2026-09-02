@@ -232,7 +232,7 @@ function PresetButton({ label, active, onClick }: { label: string; active: boole
       type="button"
       onClick={onClick}
       className={`focus-ring inline-flex min-h-[36px] items-center rounded-lg border px-3 font-mono text-xs transition-colors ${
-        active ? "border-amber bg-amber text-white" : "border-line text-ink hover:border-amber/40"
+        active ? "border-accent bg-accent text-on-accent" : "border-line text-ink hover:border-accent/40"
       }`}
     >
       {label}

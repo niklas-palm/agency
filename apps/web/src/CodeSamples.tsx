@@ -6,6 +6,7 @@
  */
 import { useState } from "react";
 import { Check, Copy } from "lucide-react";
+import { TINT } from "./theme.js";
 
 /**
  * A stand-in used when we have no key to show - i.e. for a caller who can only VIEW the agent, since
@@ -86,7 +87,7 @@ export function CodeBlock({ code, lang }: { code: string; lang: Lang }) {
         title="Copy"
         aria-label="Copy code"
       >
-        {copied ? <Check className="h-3.5 w-3.5 text-pine-deep" /> : <Copy className="h-3.5 w-3.5" />}
+        {copied ? <Check className="h-3.5 w-3.5 text-live-ink" /> : <Copy className="h-3.5 w-3.5" />}
       </button>
       <pre className="overflow-x-auto rounded-lg border border-line bg-raised px-4 py-3.5 font-mono text-xs leading-relaxed text-ink">
         <code>{highlight(code, lang)}</code>
@@ -101,10 +102,10 @@ export function CodeBlock({ code, lang }: { code: string; lang: Lang }) {
  * of keywords in the console palette. Strings are matched before comments so a
  * `#`/`//` inside a string (e.g. a URL) isn't mistaken for a comment. */
 const TOKEN_COLOR = {
-  comment: "#A79E90", // faint (warm)
-  string: "#21584A", // pine
-  keyword: "#B4741A", // amber-deep (the signature)
-  number: "#9A511C", // clay
+  comment: TINT.faint,
+  string: TINT.live,
+  keyword: TINT.accentInk, // the signature
+  number: TINT.clayInk,
 } as const;
 
 const KEYWORDS: Record<Lang, Set<string>> = {

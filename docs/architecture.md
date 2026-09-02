@@ -19,7 +19,11 @@ apps/sample-api      A tiny pet-store Hono API - a REMOVABLE demo/E2E target for
 apps/web             React + Vite SPA, Tailwind "Studio" editorial design system (warm
                      cream/marigold/pine palette, Hanken Grotesk + a Fraunces serif eyebrow
                      + IBM Plex Mono for machine data, a hand-drawn compass mark; the live
-                     run as a timeline trace), mobile-first. Signed-out visitors get a
+                     run as a timeline trace), mobile-first. Every color is a palette token
+                     read from a CSS variable, so a THEME repaints the console by redefining
+                     ~20 of them (`src/styles.css` holds the palettes - Agency, Catppuccin
+                     Mocha, Gruvbox dark - and `src/theme.ts` the picker in Settings; the
+                     choice lives in localStorage, not on the account). Signed-out visitors get a
                      landing page (no auto-redirect) and can read the public Docs page;
                      sign-in is an in-app SRP login form (no hosted-UI redirect). A top-bar org switcher selects the active org (sent
                      as X-Agency-Org); a Members page manages roles + invites; the UI gates

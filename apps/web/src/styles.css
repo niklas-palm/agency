@@ -6,6 +6,13 @@
  * space — not in decorative iconography. Machine data in IBM Plex Mono. Motion is
  * quiet and functional: a short page rise, a fade for streamed rows, a soft pulse
  * on live status. transform/opacity only; reduced-motion degrades gracefully.
+ *
+ * COLOR LIVES HERE, ONCE. Every color in the console is a palette token read from
+ * a CSS custom property, so a theme is just a redefinition of ~20 variables (see
+ * "Themes" below and `theme.ts` for the switcher). Nothing else in the app may
+ * hardcode a color: `tailwind.config.js` maps each Tailwind color onto a token,
+ * and `components.tsx`'s `TINT` does the same for the handful of places that need
+ * a color as a JS string.
  */
 @import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Hanken+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
 
@@ -13,10 +20,110 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Themes ─────────────────────────────────────────────────────────────────────
+ * `:root` is the default ("Agency" — the Studio palette); a theme overrides tokens
+ * under `[data-theme="…"]`, which `theme.ts` sets on <html>. The selector is an
+ * ATTRIBUTE selector, not `html[data-theme]`, deliberately: it also scopes to any
+ * nested element, which is how the Settings picker renders each theme's swatches in
+ * that theme's own colors without duplicating the palette in TS.
+ *
+ * Channels, not hex, so Tailwind's `/opacity` modifiers work: `rgb(var(--c-x) / 0.4)`.
+ * A theme MUST define every token — a missing one silently falls back to the
+ * default's value, which in a dark theme means unreadable text. `theme.test.ts`
+ * fails if a block is incomplete.
+ *
+ * The two guest palettes are the upstream ones, unmodified, one flavour each:
+ * Catppuccin Mocha (catppuccin/palette v1.8.0) and Gruvbox dark medium
+ * (morhetz/gruvbox). Tokens map onto each palette's own semantic roles; nothing is
+ * hand-mixed, because a "nearly Gruvbox" palette is worse than none.
+ */
 @layer base {
   :root {
     /* Strong, intentional easings (the CSS defaults are too weak). */
     --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+
+    /* Agency — warm cream paper, marigold, pine. */
+    color-scheme: light;
+    --c-canvas: 250 248 244; /* #FAF8F4 page */
+    --c-surface: 255 253 250; /* #FFFDFA cards (warm white) */
+    --c-raised: 245 241 232; /* #F5F1E8 recessed inner fills */
+    --c-ink: 26 23 20; /* #1A1714 primary text (warm near-black) */
+    --c-muted: 110 101 90; /* #6E655A secondary text */
+    --c-faint: 167 158 144; /* #A79E90 tertiary / placeholders */
+    --c-line: 230 223 210; /* #E6DFD2 hairline borders */
+    --c-fill: 241 235 223; /* #F1EBDF chips, skeletons */
+    --c-accent: 232 163 61; /* #E8A33D marigold — the signature */
+    --c-accent-hover: 221 149 44; /* #DD952C */
+    --c-accent-ink: 180 116 26; /* #B4741A accent tone that carries small text */
+    --c-live: 33 88 74; /* #21584A pine — running / healthy / shared */
+    --c-live-ink: 22 63 52; /* #163F34 */
+    --c-clay: 192 106 44; /* #C06A2C the second warm hue */
+    --c-clay-ink: 154 81 28; /* #9A511C */
+    --c-warn: 180 116 26; /* #B4741A */
+    --c-danger: 178 58 46; /* #B23A2E */
+    --c-danger-ink: 154 47 38; /* #9A2F26 */
+    --c-on-accent: 26 23 20; /* text on an `accent` fill — warm ink, the signature */
+    --c-on-strong: 255 253 250; /* text on a deep `*-ink` fill */
+    --shadow-card: 0 1px 2px rgb(26 23 20 / 0.04), 0 8px 24px -12px rgb(26 23 20 / 0.1);
+  }
+
+  /* Catppuccin Mocha. Accent = Mauve (the flavour's own default accent), with
+     Lavender as its text/second tone; Peach, Green, Yellow and Red carry clay,
+     live, warn and danger. Surfaces follow Catppuccin's own layering: Base is the
+     page, Surface0 the lifted card, Mantle the recessed inner fill. */
+  [data-theme="catppuccin"] {
+    color-scheme: dark;
+    --c-canvas: 30 30 46; /* base    #1e1e2e */
+    --c-surface: 49 50 68; /* surface0 #313244 */
+    --c-raised: 24 24 37; /* mantle  #181825 */
+    --c-ink: 205 214 244; /* text    #cdd6f4 */
+    --c-muted: 186 194 222; /* subtext1 #bac2de */
+    --c-faint: 127 132 156; /* overlay1 #7f849c */
+    --c-line: 88 91 112; /* surface2 #585b70 */
+    --c-fill: 69 71 90; /* surface1 #45475a */
+    --c-accent: 203 166 247; /* mauve    #cba6f7 */
+    --c-accent-hover: 180 190 254; /* lavender #b4befe */
+    --c-accent-ink: 180 190 254; /* lavender #b4befe */
+    --c-live: 166 227 161; /* green    #a6e3a1 */
+    --c-live-ink: 166 227 161;
+    --c-clay: 250 179 135; /* peach    #fab387 */
+    --c-clay-ink: 250 179 135;
+    --c-warn: 249 226 175; /* yellow   #f9e2af */
+    --c-danger: 243 139 168; /* red      #f38ba8 */
+    --c-danger-ink: 243 139 168;
+    /* Every saturated tone in a dark flavour is LIGHT, so text on a filled
+       surface is the page color in both roles. */
+    --c-on-accent: 30 30 46;
+    --c-on-strong: 30 30 46;
+    --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px -12px rgb(0 0 0 / 0.6);
+  }
+
+  /* Gruvbox dark, medium contrast. Accent = bright yellow with neutral yellow as
+     its text/second tone; bright orange, green and red carry clay, live and danger.
+     bg0 is the page, bg1 the lifted card, dark0_hard the recessed inner fill. */
+  [data-theme="gruvbox"] {
+    color-scheme: dark;
+    --c-canvas: 40 40 40; /* bg0        #282828 */
+    --c-surface: 60 56 54; /* bg1        #3c3836 */
+    --c-raised: 29 32 33; /* dark0_hard #1d2021 */
+    --c-ink: 235 219 178; /* fg1        #ebdbb2 */
+    --c-muted: 213 196 161; /* fg2        #d5c4a1 */
+    --c-faint: 146 131 116; /* gray       #928374 */
+    --c-line: 102 92 84; /* bg3        #665c54 */
+    --c-fill: 80 73 69; /* bg2        #504945 */
+    --c-accent: 250 189 47; /* bright_yellow  #fabd2f */
+    --c-accent-hover: 215 153 33; /* neutral_yellow #d79921 */
+    --c-accent-ink: 215 153 33; /* neutral_yellow #d79921 */
+    --c-live: 184 187 38; /* bright_green   #b8bb26 */
+    --c-live-ink: 184 187 38;
+    --c-clay: 254 128 25; /* bright_orange  #fe8019 */
+    --c-clay-ink: 254 128 25;
+    --c-warn: 215 153 33; /* neutral_yellow #d79921 */
+    --c-danger: 251 73 52; /* bright_red     #fb4934 */
+    --c-danger-ink: 251 73 52;
+    --c-on-accent: 40 40 40;
+    --c-on-strong: 40 40 40;
+    --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px -12px rgb(0 0 0 / 0.6);
   }
   html {
     -webkit-font-smoothing: antialiased;
@@ -37,8 +144,8 @@
     font-optical-sizing: auto;
   }
   ::selection {
-    background: rgba(232, 163, 61, 0.28);
-    color: #1a1714;
+    background: rgb(var(--c-accent) / 0.28);
+    color: rgb(var(--c-ink));
   }
   ::-webkit-scrollbar {
     width: 11px;
@@ -80,14 +187,14 @@
     transform: translateX(100%);
   }
 }
-/* Live status — a slow, soft pulse ring in pine (running/healthy). */
+/* Live status — a slow, soft pulse ring in the live hue (running/healthy). */
 @keyframes ag-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgba(33, 88, 74, 0.35);
+    box-shadow: 0 0 0 0 rgb(var(--c-live) / 0.35);
   }
   50% {
-    box-shadow: 0 0 0 4px rgba(33, 88, 74, 0);
+    box-shadow: 0 0 0 4px rgb(var(--c-live) / 0);
   }
 }
 @media (prefers-reduced-motion: no-preference) {
@@ -123,21 +230,21 @@
   }
 
   /* Editorial eyebrow — the ONE serif flourish: a small italic Fraunces label in
-     amber above a masthead. The wink that keeps Studio from being a plain sans. */
+     the accent above a masthead. The wink that keeps Studio from being a plain sans. */
   .eyebrow {
-    @apply font-serif text-sm font-medium italic text-amber-deep;
+    @apply font-serif text-sm font-medium italic text-accent-ink;
   }
 
   /* Shared keyboard focus ring. */
   .focus-ring {
-    @apply outline-none focus-visible:ring-2 focus-visible:ring-amber/60 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas;
+    @apply outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas;
   }
 
-  /* Primary action — marigold with warm-ink text (the signature). 40px min. */
+  /* Primary action — the accent fill with the text tone that sits on it. 40px min. */
   .btn {
-    @apply focus-ring inline-flex min-h-[40px] items-center justify-center gap-2 rounded-lg bg-amber px-4
-      text-sm font-semibold text-ink transition-[background-color,transform] duration-150
-      hover:bg-[#dd952c] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45 disabled:active:scale-100;
+    @apply focus-ring inline-flex min-h-[40px] items-center justify-center gap-2 rounded-lg bg-accent px-4
+      text-sm font-semibold text-on-accent transition-[background-color,transform] duration-150
+      hover:bg-accent-hover active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45 disabled:active:scale-100;
   }
   .btn-ghost {
     @apply focus-ring inline-flex min-h-[40px] items-center justify-center gap-2 rounded-lg border border-line
@@ -149,7 +256,7 @@
   .field {
     @apply w-full rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm
       text-ink transition-colors placeholder:text-faint
-      focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/20;
+      focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20;
   }
 
   /* Chip / tag. */
@@ -200,7 +307,7 @@
     @apply border-0 bg-transparent p-0;
   }
   .prose-trace a {
-    @apply text-amber-deep underline underline-offset-2;
+    @apply text-accent-ink underline underline-offset-2;
   }
   .prose-trace blockquote {
     @apply my-2 border-l-2 border-line pl-3 text-muted;
@@ -221,7 +328,7 @@
     @apply absolute inset-0;
     content: "";
     transform: translateX(-100%);
-    background: linear-gradient(90deg, transparent, rgba(255, 253, 250, 0.7), transparent);
+    background: linear-gradient(90deg, transparent, rgb(var(--c-surface) / 0.7), transparent);
   }
   @media (prefers-reduced-motion: no-preference) {
     .skeleton::after {

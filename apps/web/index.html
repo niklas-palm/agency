@@ -14,7 +14,18 @@
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%231A1714'/%3E%3Cpath d='M12 4 L13.6 12 L12 20 L10.4 12 Z' fill='%23E8A33D'/%3E%3Cpath d='M4 12 L12 10.6 L20 12 L12 13.4 Z' fill='%2321584A'/%3E%3Ccircle cx='12' cy='12' r='1.6' fill='%23FAF8F4'/%3E%3C/svg%3E"
     />
     <title>Agency — AI agents, without the engineering</title>
+    <script>
+      // Paint the saved theme before the first frame, so a dark theme doesn't flash
+      // the cream default while the bundle loads. The key must match STORAGE_KEY in
+      // src/theme.ts; the value is copied as-is, and an unknown one matches no
+      // palette block and simply leaves the default in place.
+      try {
+        var t = localStorage.getItem("agency.theme");
+        if (t) document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    </script>
   </head>
+
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>

@@ -29,7 +29,7 @@ export function SkillPicker({ value, onChange }: { value: string[]; onChange: (i
     return (
       <p className="text-xs text-muted">
         No skills yet.{" "}
-        <a href="#/skills" className="text-amber-deep hover:underline">
+        <a href="#/skills" className="text-accent-ink hover:underline">
           Create one
         </a>{" "}
         to attach it here.
@@ -50,7 +50,7 @@ export function SkillPicker({ value, onChange }: { value: string[]; onChange: (i
               type="checkbox"
               checked={on}
               onChange={(e) => toggle(s.id, e.target.checked)}
-              className="mt-0.5 h-4 w-4 shrink-0 accent-amber"
+              className="mt-0.5 h-4 w-4 shrink-0 accent-accent"
             />
             <span className="min-w-0">
               <span className="block truncate font-mono text-xs font-medium text-ink">{s.name}</span>
@@ -100,7 +100,7 @@ export function IntegrationPicker({
     return (
       <p className="text-xs text-muted">
         No integrations yet.{" "}
-        <a href="#/integrations" className="text-amber-deep hover:underline">
+        <a href="#/integrations" className="text-accent-ink hover:underline">
           Create one
         </a>{" "}
         to attach it here.
@@ -121,7 +121,7 @@ export function IntegrationPicker({
               type="checkbox"
               checked={on}
               onChange={(e) => toggle(i.id, e.target.checked)}
-              className="mt-0.5 h-4 w-4 shrink-0 accent-amber"
+              className="mt-0.5 h-4 w-4 shrink-0 accent-accent"
             />
             <span className="min-w-0">
               <span className="block truncate font-mono text-xs font-medium text-ink">{i.name}</span>
@@ -270,7 +270,7 @@ export function ManagerPicker({
               type="checkbox"
               checked={on}
               onChange={(e) => toggle(m.userId, e.target.checked)}
-              className="h-4 w-4 shrink-0 accent-amber"
+              className="h-4 w-4 shrink-0 accent-accent"
             />
             <span className="min-w-0 flex-1 truncate text-sm text-ink">{m.email ?? m.userId}</span>
             <span className="shrink-0 font-mono text-xs text-faint">{m.role}</span>

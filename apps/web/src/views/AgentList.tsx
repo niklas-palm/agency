@@ -3,7 +3,8 @@ import type { Agent } from "@agency/shared";
 import { Plus } from "lucide-react";
 import { listAgents } from "../api.js";
 import { useCan, useOrg } from "../OrgContext.js";
-import { AgentListSkeleton, ErrorNote, ModelTag, relativeTime, TINT } from "../components.js";
+import { AgentListSkeleton, ErrorNote, ModelTag, relativeTime } from "../components.js";
+import { TINT } from "../theme.js";
 
 export function AgentList() {
   const [agents, setAgents] = useState<Agent[] | null>(null);

@@ -195,9 +195,9 @@ function StepTracker({ current, live }: { current: number; live: boolean }) {
             <span
               className={`flex h-4 w-4 items-center justify-center rounded-full border text-[9px] ${
                 done
-                  ? "border-pine bg-pine text-canvas"
+                  ? "border-live bg-live text-canvas"
                   : active
-                    ? "border-pine text-pine-deep"
+                    ? "border-live text-live-ink"
                     : "border-line text-muted"
               }`}
             >
@@ -224,7 +224,7 @@ function Panel({
   if (receipt) {
     return (
       <div className="flex items-center gap-2 rounded-lg border border-line bg-canvas px-4 py-2.5 text-xs">
-        <Check className="h-3.5 w-3.5 shrink-0 text-pine-deep" />
+        <Check className="h-3.5 w-3.5 shrink-0 text-live-ink" />
         <span className="text-muted">{receipt}</span>
       </div>
     );
@@ -686,9 +686,9 @@ function LivePanel({
         </div>
       ) : null}
 
-      <div className="rounded-lg border border-pine/40 bg-surface p-4">
+      <div className="rounded-lg border border-live/40 bg-surface p-4">
         <div className="flex items-center gap-2">
-          <Check className="h-4 w-4 text-pine-deep" />
+          <Check className="h-4 w-4 text-live-ink" />
           <span className="text-sm font-medium text-ink">Live in {setup.teamName ?? "your workspace"}</span>
         </div>
         <p className="mt-2 text-xs text-muted">
@@ -861,7 +861,7 @@ function CopyBlock({ label, value, multiline }: { label: string; value: string; 
       <div className="mb-1.5 flex items-center justify-between">
         <div className="label">{label}</div>
         <button className="btn btn-ghost" onClick={() => void copy()}>
-          {copied ? <Check className="h-3.5 w-3.5 text-pine-deep" /> : <Copy className="h-3.5 w-3.5" />}
+          {copied ? <Check className="h-3.5 w-3.5 text-live-ink" /> : <Copy className="h-3.5 w-3.5" />}
           {copied ? "Copied" : "Copy"}
         </button>
       </div>

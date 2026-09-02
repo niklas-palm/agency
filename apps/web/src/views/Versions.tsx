@@ -10,6 +10,7 @@ import { MODEL_INFO } from "@agency/shared";
 import { ChevronRight, RotateCcw } from "lucide-react";
 import { listVersions, restoreVersion } from "../api.js";
 import { ErrorNote, Skeleton } from "../components.js";
+import { TINT, tintAlpha } from "../theme.js";
 import { Monitor } from "./Monitor.js";
 
 export function Versions({
@@ -117,7 +118,7 @@ function VersionRow({
             {live && (
               <span
                 className="rounded-md px-1.5 py-0.5 font-mono text-[10px] font-medium"
-                style={{ backgroundColor: "#21584A14", color: "#21584A" }}
+                style={{ backgroundColor: tintAlpha("live", 0.08), color: TINT.live }}
               >
                 live
               </span>

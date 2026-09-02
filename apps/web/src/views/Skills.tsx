@@ -11,7 +11,8 @@ import { Plus, Trash2, Pencil, Boxes, Eye } from "lucide-react";
 import { listSkills, createSkill, updateSkill, deleteSkill } from "../api.js";
 import { useCan, useOrg } from "../OrgContext.js";
 import { ManagerPicker } from "../AgentExtras.js";
-import { ErrorNote, Skeleton, SharedBadge, ToggleRow, TINT } from "../components.js";
+import { ErrorNote, Skeleton, SharedBadge, ToggleRow } from "../components.js";
+import { TINT, tintAlpha } from "../theme.js";
 
 export function Skills() {
   const [skills, setSkills] = useState<Skill[] | null>(null);
@@ -249,7 +250,7 @@ function SkillEditor({
         {parsed.errors.length > 0 ? (
           <div
             className="rounded-lg border px-3.5 py-2.5 text-xs"
-            style={{ borderColor: `${TINT.warn}33`, backgroundColor: `${TINT.warn}0d`, color: "#8a5a0a" }}
+            style={{ borderColor: tintAlpha("warn", 0.2), backgroundColor: tintAlpha("warn", 0.05), color: TINT.warn }}
           >
             <div className="mb-1 font-medium">To match the SKILL.md standard, fix:</div>
             <ul className="list-inside list-disc space-y-0.5">
@@ -260,7 +261,7 @@ function SkillEditor({
           </div>
         ) : (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-muted">
-            <span className="text-pine-deep">✓ valid</span>
+            <span className="text-live-ink">✓ valid</span>
             <span>
               name <span className="text-ink">{parsed.name}</span>
             </span>
@@ -314,7 +315,7 @@ function SkillEditor({
 function EmptyState({ canCreate, onCreate }: { canCreate: boolean; onCreate: () => void }) {
   return (
     <div className="card flex flex-col items-center gap-4 px-6 py-16 text-center">
-      <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-fill text-amber-deep">
+      <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-fill text-accent-ink">
         <Boxes className="h-5 w-5" />
       </span>
       <p className="max-w-xs text-sm leading-relaxed text-muted">

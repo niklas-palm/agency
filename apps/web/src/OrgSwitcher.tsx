@@ -9,7 +9,7 @@ import { ChevronDown, Plus, Check } from "lucide-react";
 import type { Invite } from "@agency/shared";
 import { useOrg } from "./OrgContext.js";
 import { createOrg, listMyInvites, acceptInvite, declineInvite } from "./api.js";
-import { TINT } from "./components.js";
+import { TINT } from "./theme.js";
 
 export function OrgSwitcher() {
   const { orgs, activeOrgId, switchOrg, reload, nonce } = useOrg();
@@ -111,7 +111,7 @@ export function OrgSwitcher() {
       >
         <span className="truncate font-medium">{active?.name ?? "…"}</span>
         {invites.length > 0 && (
-          <span className="grid h-4 min-w-4 place-items-center rounded-full px-1 text-[10px] font-semibold text-white" style={{ backgroundColor: TINT.accent }}>
+          <span className="grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[10px] font-semibold text-on-accent">
             {invites.length}
           </span>
         )}
