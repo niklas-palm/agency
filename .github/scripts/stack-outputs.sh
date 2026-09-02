@@ -10,16 +10,46 @@
 #
 # A missing stack is NOT an error - on a first-ever deploy nothing exists yet, so every value
 # is empty and the caller skips the web build (see deploy.yml). That's what makes the
-# first run work without a special case.
+# first run work without a special case. Anything ELSE going wrong IS an error: see cfn().
 set -euo pipefail
 
 out() { echo "$1=$2" >>"${GITHUB_OUTPUT:-/dev/stdout}"; }
 
+# One CloudFormation query against one stack, or "" when that stack doesn't exist yet.
+#
+# `describe-stacks` EXITS NON-ZERO for an absent stack, and under `set -e` + `pipefail` that
+# status escapes the command substitution and kills the whole script - so "a missing stack is
+# not an error" was never actually true. It took down the deploy that introduced
+# AgencyWebPreview: the outputs step died looking for the stack that same deploy would have
+# created, so the deploy was self-blocking, and `2>/dev/null` meant the only evidence left in
+# the log was a bare `exit 254`.
+#
+# ONLY "does not exist" becomes an empty value. A real failure - no credentials, a denied
+# call, throttling - still fails the step loudly, because resolving it to "" would hand the
+# caller a bundle built against nothing (or, on the fast path, a sync to nowhere).
+cfn() {
+  local stack="$1" query="$2" value status=0 err
+  err=$(mktemp)
+  value=$(aws cloudformation describe-stacks --stack-name "$stack" \
+    --query "$query" --output text 2>"$err") || status=$?
+  if [ "$status" -ne 0 ]; then
+    if grep -qi 'does not exist' "$err"; then
+      rm -f "$err"
+      return 0
+    fi
+    cat "$err" >&2
+    rm -f "$err"
+    echo "::error::describe-stacks $stack failed (exit $status) - see the error above." >&2
+    return "$status"
+  fi
+  rm -f "$err"
+  # `| [0]` on a key that isn't in the stack's outputs prints the literal "None".
+  [ "$value" = "None" ] || printf '%s\n' "$value"
+}
+
 # One value from one stack, or "" if the stack or key is absent.
 get() {
-  aws cloudformation describe-stacks --stack-name "$1" \
-    --query "Stacks[0].Outputs[?OutputKey=='$2'].OutputValue | [0]" \
-    --output text 2>/dev/null | sed 's/^None$//'
+  cfn "$1" "Stacks[0].Outputs[?OutputKey=='$2'].OutputValue | [0]"
 }
 
 API_URL=$(get AgencyControlPlane ApiUrl)
@@ -51,14 +81,12 @@ fi
 # The Cognito output keys have drifted before; fall back to a contains-match so a rename
 # doesn't silently produce an SPA that can't sign in.
 if [ -z "$USER_POOL_ID" ]; then
-  USER_POOL_ID=$(aws cloudformation describe-stacks --stack-name AgencyAuth \
-    --query "Stacks[0].Outputs[?contains(OutputKey,'UserPoolId')].OutputValue | [0]" \
-    --output text 2>/dev/null | sed 's/^None$//')
+  USER_POOL_ID=$(cfn AgencyAuth \
+    "Stacks[0].Outputs[?contains(OutputKey,'UserPoolId')].OutputValue | [0]")
 fi
 if [ -z "$WEB_CLIENT_ID" ]; then
-  WEB_CLIENT_ID=$(aws cloudformation describe-stacks --stack-name AgencyAuth \
-    --query "Stacks[0].Outputs[?contains(OutputKey,'Web') && contains(OutputKey,'Client')].OutputValue | [0]" \
-    --output text 2>/dev/null | sed 's/^None$//')
+  WEB_CLIENT_ID=$(cfn AgencyAuth \
+    "Stacks[0].Outputs[?contains(OutputKey,'Web') && contains(OutputKey,'Client')].OutputValue | [0]")
 fi
 
 out api_url "$API_URL"

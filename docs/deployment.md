@@ -170,6 +170,16 @@ After a full deploy, `smoke.sh` asserts `/health` 200, `/openapi.json` 200, `/ag
 (auth is on), the SPA serves, and the served bundle references this deployment's API. It does
 **not** run the E2E - that invokes real models and costs money; run it on demand.
 
+**An absent stack resolves to an empty value; anything else fails the step.** Optional stacks
+(`AgencyWebPreview`) and a first-ever deploy both mean a lookup for a stack that isn't there, and
+`aws cloudformation describe-stacks` exits **254** for one - which under `set -e` used to kill the
+script, so a deploy died resolving outputs one step before `cdk deploy`, taking with it the deploy
+that would have created the stack it was looking for. Only the CLI's "does not exist" is
+translated to `""`; expired credentials, a denied call or throttling still stop the deploy, because
+resolving those to `""` would publish a bundle built against nothing (or, on the fast path, sync to
+nowhere). `stack-outputs.test.sh` pins both halves with a stubbed `aws` on `PATH`, and CI runs it
+alongside the scope tests.
+
 ### First deploy from CI
 
 The stacks don't exist yet, so the outputs are empty and the SPA build is skipped - CI deploys

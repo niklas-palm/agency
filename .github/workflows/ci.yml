@@ -37,6 +37,9 @@ jobs:
           AWS_SHARED_CREDENTIALS_FILE: /dev/null
       # The deploy-scope rule decides whether a backend change gets deployed at all, so its
       # tests run here too - a wrong answer there is silent. Same for preview-scope, which
-      # decides whether a PR can be honestly represented by an SPA-only preview.
+      # decides whether a PR can be honestly represented by an SPA-only preview, and for
+      # stack-outputs, which every deploy path starts with: it once exited 254 on a stack
+      # that didn't exist yet and took the whole deploy with it.
       - run: bash .github/scripts/deploy-scope.test.sh
       - run: bash .github/scripts/preview-scope.test.sh
+      - run: bash .github/scripts/stack-outputs.test.sh
