@@ -179,6 +179,21 @@ two as prerequisites, not footnotes.
   SAME Cognito pool for a different app client would be accepted. That's a single-pool
   deployment, so the practical blast radius is "another client of your own pool"; it matters
   more if you add app clients with different privilege levels, and it is on the backlog.
+- **PR previews serve unreviewed frontend code against the live API** - only if you turn them
+  on (`-c previews=true`; off by default). A preview is the production console with an
+  unreviewed SPA, published at `<pr-number>.<your-domain>`. The host is public, so anyone who
+  guesses it gets the bundle; doing anything with it still requires signing in to the real user
+  pool, so the real exposure is what a reviewer who *does* sign in hands to unreviewed
+  JavaScript - their token, in that host's `localStorage`, and every action it takes is real
+  data in a real org. What bounds it: a preview publishes only when a maintainer adds the
+  `preview` label; the previewable rule refuses any PR that changes more than `apps/web/`; the
+  preview is a **sibling host**, never a path on the production origin, so its JavaScript
+  cannot read a production session's token; and publishing uses a separate OIDC role that can
+  write the previews bucket and invalidate its distribution and nothing else, so no PR can
+  deploy infrastructure. Enabling previews also adds a `*.<your-domain>` **wildcard** record,
+  which answers for every subdomain you have no explicit record for. If your reviewers aren't
+  people you'd trust with the live account, leave previews off. See
+  [docs/deployment.md](docs/deployment.md#pr-previews).
 - **A few narrow concurrency residuals** are documented in `CLAUDE.md` (a straggler message
   during a terminal write; a shared-session *status-reporting* edge; conversation-window
   truncation at 40 turns). Each is described with the conditions that make it narrow. Note the
@@ -223,6 +238,9 @@ Not exhaustive, but these are the ones that matter most:
       content - see the Logs section of [docs/deployment.md](docs/deployment.md)
 - [ ] If you federate to an external identity provider, re-read [docs/auth.md](docs/auth.md) -
       the email claim is an authority input for invite acceptance
+- [ ] If you enable PR previews, decide who may add the `preview` label, and whether the
+      `preview` GitHub environment should require a reviewer before a preview publishes -
+      a preview is unreviewed frontend code in front of your live API
 
 ## Supported versions
 

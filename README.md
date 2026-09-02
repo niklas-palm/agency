@@ -178,7 +178,9 @@ putting both keys back with your values; nothing else changes.
 Merges to `main` deploy to AWS through GitHub Actions, authenticated by **OIDC** - no AWS keys
 are stored in the repository. A UI-only change takes a fast path (build the SPA, `s3 sync`,
 invalidate the CDN) instead of a full CloudFormation run. PRs run the test gate with no
-credentials at all. See [docs/deployment.md](docs/deployment.md#continuous-deployment-github-actions).
+credentials at all - the one exception is a frontend-only PR a maintainer labels `preview`,
+which publishes that branch's SPA to a preview host using a separate role that can deploy no
+infrastructure. See [docs/deployment.md](docs/deployment.md#continuous-deployment-github-actions).
 
 ## Contributing
 
