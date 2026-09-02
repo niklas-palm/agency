@@ -65,6 +65,9 @@ scripts              ensure-tables, e2e, models-e2e, mint-m2m-token.
                      its SPA publishes to `<pr>.<domain>` (a second, deliberately narrow
                      OIDC role - a PR must never be able to deploy infra; the previewable
                      rule is its own tested script, preview-scope.sh).
+                     Every path starts with stack-outputs.sh, which resolves build inputs from
+                     CloudFormation - an absent stack is an empty value, any other failure is
+                     fatal (stack-outputs.test.sh; see docs/deployment.md).
 docs/                Living documentation - the reference for WHY, and part of every change
                      (standing rules 4-6). Start at docs/architecture.md.
 README.md            The public front door. LICENSE (Apache-2.0) + NOTICE + SECURITY.md +
