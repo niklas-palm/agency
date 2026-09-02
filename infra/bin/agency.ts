@@ -5,7 +5,8 @@
  *   AgencyData  - DynamoDB tables
  *   AgencyControlPlane - runtime image + the shared AgentCore runtime pool (public + isolated) + IAM + API Lambda
  *   AgencyWeb   - the SPA on S3 + CloudFront
- *   AgencyWebCert - us-east-1 certificate for the SPA's custom domain (only with one configured)
+ *   AgencyWebCert - us-east-1 certificate(s) for the SPA's custom domain (only with one configured)
+ *   AgencyWebPreview - per-PR previews at `<pr>.<domain>` (OPT-IN: `-c previews=true`, needs a domain)
  *   AgencySampleApi - a REMOVABLE sample downstream API to demo integrations end-to-end
  *                     (OPT-IN: only synthesized with `-c sampleApi=true`)
  *
@@ -20,10 +21,11 @@ import { DataStack } from "../lib/data-stack.js";
 import { ControlPlaneStack } from "../lib/control-plane-stack.js";
 import { WebStack } from "../lib/web-stack.js";
 import { WebCertStack } from "../lib/web-cert-stack.js";
+import { WebPreviewStack } from "../lib/web-preview-stack.js";
 import { WebSearchStack } from "../lib/web-search-stack.js";
 import { SampleApiStack } from "../lib/sample-api-stack.js";
 import { REGION, WEB_SEARCH_REGION } from "../lib/config.js";
-import { resolveDomain } from "../lib/domain.js";
+import { resolveDomain, contextFlag } from "../lib/domain.js";
 
 const app = new App();
 const env = { region: REGION };
@@ -61,25 +63,41 @@ new ControlPlaneStack(app, "AgencyControlPlane", {
   domain,
 });
 
-// CloudFront accepts an ACM certificate only from us-east-1, so the SPA's certificate
-// needs a us-east-1 stack of its own (same single-region reason as AgencyWebSearch);
-// AgencyWeb reads its ARN cross-region. The API's certificate is regional and is issued
-// inside AgencyControlPlane instead. Neither exists without a configured domain.
+// CloudFront accepts an ACM certificate only from us-east-1, so the SPA's certificates
+// need a us-east-1 stack of their own (same single-region reason as AgencyWebSearch);
+// AgencyWeb + AgencyWebPreview read the ARNs cross-region. The API's certificate is
+// regional and is issued inside AgencyControlPlane instead. None of this exists without a
+// configured domain.
+//
+// PR previews are OPT-IN (`-c previews=true`) and need a domain: they add a second
+// distribution and a WILDCARD DNS record, which no fork or trial deployment should get by
+// surprise. See infra/lib/web-preview-stack.ts.
+const previews = domain !== undefined && contextFlag(app, "previews");
+
+const webCert = domain
+  ? new WebCertStack(app, "AgencyWebCert", {
+      // CloudFront reads ACM certificates only from us-east-1.
+      env: { region: "us-east-1" },
+      crossRegionReferences: true,
+      domain,
+      previews,
+    })
+  : undefined;
+
 new WebStack(app, "AgencyWeb", {
   env,
   crossRegionReferences: true,
-  site: domain
-    ? {
-        domain,
-        certificateArn: new WebCertStack(app, "AgencyWebCert", {
-          // CloudFront reads ACM certificates only from us-east-1.
-          env: { region: "us-east-1" },
-          crossRegionReferences: true,
-          domain,
-        }).certificateArn,
-      }
-    : undefined,
+  site: domain && webCert ? { domain, certificateArn: webCert.certificateArn } : undefined,
 });
+
+if (domain && webCert?.previewCertificateArn) {
+  new WebPreviewStack(app, "AgencyWebPreview", {
+    env,
+    crossRegionReferences: true,
+    domain,
+    certificateArn: webCert.previewCertificateArn,
+  });
+}
 
 // A REMOVABLE sample downstream API to integrate against end-to-end (its own stack, so
 // deleting it is `cdk destroy AgencySampleApi` - it touches nothing else).
@@ -87,7 +105,7 @@ new WebStack(app, "AgencyWeb", {
 // OPT-IN, because it is a second internet-facing API that exists only for the
 // integrations E2E: `cdk deploy --all` shouldn't hand a deployer a demo endpoint they
 // didn't ask for. Enable with `-c sampleApi=true` (or in cdk.context.json).
-if (app.node.tryGetContext("sampleApi") === "true" || app.node.tryGetContext("sampleApi") === true) {
+if (contextFlag(app, "sampleApi")) {
   new SampleApiStack(app, "AgencySampleApi", { env });
 }
 

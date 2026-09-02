@@ -2,6 +2,8 @@
   "//": "DEPLOYING YOUR OWN COPY? Change domainName + hostedZoneId to your own, or DELETE BOTH to serve on the CloudFront + API Gateway hostnames (no DNS setup needed - the right choice for a trial). Left as-is, CDK requests a certificate for a domain you don't control and CloudFormation waits on DNS validation instead of failing fast. Both keys or neither; every key is documented in infra/cdk.json.",
   "domainName": "agency.nipalm.com",
   "hostedZoneId": "Z062521210ZTEM4SNLS7Z",
+  "//previews": "\"true\" adds AgencyWebPreview: PR previews at <pr>.<domainName>, published by the preview workflow when a PR carries the `preview` label. Needs domainName + hostedZoneId, adds a second CloudFront distribution and a WILDCARD DNS record (*.<domainName>), so it is off unless you want it.",
+  "previews": "true",
   "//sampleApi": "\"true\" adds AgencySampleApi, a removable pet-store API used only as the target for the integrations E2E (RUN_INTEGRATION=1). Left false so a clone doesn't deploy a demo it didn't ask for.",
   "sampleApi": "false"
 }

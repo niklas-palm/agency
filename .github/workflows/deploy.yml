@@ -73,6 +73,10 @@ jobs:
           AWS_CONFIG_FILE: /dev/null
           AWS_SHARED_CREDENTIALS_FILE: /dev/null
       - run: bash .github/scripts/deploy-scope.test.sh
+      - run: bash .github/scripts/preview-scope.test.sh
+      # Cheap here, and it guards the very next job: every deploy path begins by resolving
+      # stack outputs, and a failure there stops the deploy before CloudFormation runs.
+      - run: bash .github/scripts/stack-outputs.test.sh
 
   scope:
     needs: gate

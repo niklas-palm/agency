@@ -56,3 +56,16 @@ function contextString(scope: Construct, key: string): string | undefined {
   const value = raw.trim();
   return value === "" ? undefined : value;
 }
+
+/**
+ * An opt-in boolean context flag (`-c previews=true`, or `"true"` in cdk.context.json).
+ *
+ * Both spellings, because `-c key=true` arrives as the STRING "true" while a JSON `true`
+ * arrives as a boolean - and a flag that silently ignores one of the two ways it's
+ * documented to be set is worse than no flag. Anything else, including "1" and "yes", is
+ * false: an opt-in that guesses is an opt-in you can't reason about.
+ */
+export function contextFlag(scope: Construct, key: string): boolean {
+  const raw = scope.node.tryGetContext(key);
+  return raw === true || raw === "true";
+}
