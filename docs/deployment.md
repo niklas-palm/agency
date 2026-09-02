@@ -53,12 +53,18 @@ Subsequent deploys are one pass (build the SPA, then `deploy --all`) - see
 
 ## Continuous deployment (GitHub Actions)
 
-Merges to `main` deploy automatically. Two workflows:
+Merges to `main` deploy automatically. Three workflows:
 
-- **`.github/workflows/ci.yml`** - on every PR and push: `npm ci`, `typecheck`, `test`, plus
-  the deploy-scope tests. **No AWS credentials.** A PR from a fork runs this and nothing else.
+- **`.github/workflows/ci.yml`** - on every PR and push: `npm ci`, `typecheck`, `test`, plus the
+  shell tests for the two scope rules and for `stack-outputs.sh`. **No AWS credentials.** A PR
+  from a fork runs this and nothing else.
 - **`.github/workflows/deploy.yml`** - on push to `main` only (plus manual dispatch). Runs the
   same gate, then picks the cheapest path that covers the change.
+- **`.github/workflows/preview.yml`** - on `pull_request`, and only for a same-repo,
+  frontend-only PR that a maintainer labels `preview`: it publishes that branch's SPA to
+  `<pr>.<domainName>` with a separate, deliberately narrow OIDC role. This is the one workflow
+  that holds AWS credentials outside a merge to `main`; it is opt-in per PR and can deploy no
+  infrastructure. See [PR previews](#pr-previews).
 
 ### Two paths, so a UI tweak doesn't rebuild the world
 
@@ -98,6 +104,11 @@ that's where the privilege lives, and it's how CDK is designed to be driven from
 narrow extras the fast path needs: `cloudformation:DescribeStacks`, object access to the site
 bucket, and `cloudfront:CreateInvalidation`. Verified with `iam simulate-principal-policy`:
 `iam:CreateUser`, `dynamodb:DeleteTable` and `s3:DeleteBucket` are all implicitly denied.
+
+With previews enabled there is a **second** role, `agency-github-preview`, because previews run
+on `pull_request` and this one must stay unassumable from a PR branch. It is trusted only by the
+`preview` environment and cannot assume the CDK bootstrap roles at all - see
+[PR previews](#pr-previews).
 
 Create or update it with the script (idempotent - safe to re-run):
 
@@ -392,7 +403,8 @@ was off).
    caveat as the site certificate) and creates the wildcard alias records. The **existing
    site certificate is not touched**: previews get a certificate of their own precisely so
    that enabling them can't re-issue and swap the certificate on the production distribution.
-5. Label a frontend PR `preview`.
+5. Label a frontend PR `preview`. Create the label first if the repository doesn't have one -
+   `preview` isn't in GitHub's default set, and the workflow's trigger is the label name.
 
 A fork PR is skipped: GitHub withholds write permissions and secrets from fork PRs, and the
 workflow also checks that the head repo is this repo, so it fails with an explanation rather
